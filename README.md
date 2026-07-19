@@ -1,88 +1,104 @@
 <div align="center">
 
-# 🚚 RouteOS
+# RouteOS
 
-### Intelligent Logistics & Fleet Optimization Platform
+**Intelligent Logistics & Fleet Optimization Platform**
 
-Plan **capacity- and time-window-aware multi-vehicle delivery routes** with a real
-Vehicle Routing Problem solver, watch a live fleet move on a map, disrupt it with traffic,
-and re-optimize on the fly — all running locally with **one command**.
+A full-stack platform for planning capacity- and time-window-aware multi-vehicle delivery routes
+using a constraint-based Vehicle Routing Problem solver, with a live geospatial map, backend-driven
+real-time simulation, traffic disruption, and dynamic re-optimization.
 
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
-![React](https://img.shields.io/badge/React-18_TS-61DAFB?logo=react&logoColor=black)
-![PostGIS](https://img.shields.io/badge/PostgreSQL-PostGIS-336791?logo=postgresql&logoColor=white)
-![OR-Tools](https://img.shields.io/badge/Google-OR--Tools-4285F4?logo=google&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](#)
+[![React](https://img.shields.io/badge/React-18_·_TypeScript-61DAFB?logo=react&logoColor=black)](#)
+[![PostGIS](https://img.shields.io/badge/PostgreSQL-PostGIS-336791?logo=postgresql&logoColor=white)](#)
+[![OR-Tools](https://img.shields.io/badge/Google-OR--Tools-4285F4?logo=google&logoColor=white)](#)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](#)
 
-**No fake data. No dead buttons. Every metric is computed from real routes.**
+[Quick Start](#quick-start) · [Demo Walkthrough](#demo-walkthrough) · [Architecture](#architecture) · [Deployment](#deployment) · [Documentation](architecture/ARCHITECTURE.md)
 
 </div>
 
 ---
 
-## ⚡ Run it in 2 minutes
+## Overview
 
-You only need **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** installed and running. That's it — no Python, Node, or database setup.
+RouteOS assigns delivery orders to vehicles and sequences their stops to minimize total distance,
+travel time, and vehicles used, while respecting vehicle capacity, delivery time windows, service
+times, and per-vehicle distance limits. Optimized plans are benchmarked against a naive baseline to
+quantify the improvement, then dispatched and tracked in real time on an interactive map.
+
+The system is fully functional end to end — frontend, REST/WebSocket API, PostgreSQL/PostGIS,
+optimization engine, and simulation are integrated, and every metric shown is computed from live
+data rather than hard-coded.
+
+---
+
+## Quick Start
+
+The only prerequisite is [Docker Desktop](https://www.docker.com/products/docker-desktop/). No
+local Python, Node, or database installation is required.
 
 ```bash
-git clone <your-repo-url> RouteOS
+git clone https://github.com/dhanoliya-ji/RouteOS-Intelligent-Logistics-Fleet-Optimization-Platform.git RouteOS
 cd RouteOS
-cp .env.example .env        # Windows PowerShell: copy .env.example .env
+cp .env.example .env          # Windows PowerShell: copy .env.example .env
 docker compose up --build
 ```
 
-Wait ~1–2 minutes for the first build. When the logs say `Application startup complete`, open:
+The backend automatically waits for the database, applies migrations, and seeds demo data
+(1 depot, 20 vehicles, ~150 orders across Delhi NCR). When the logs report
+`Application startup complete`, the services are available at:
 
-| What | URL |
+| Service | URL |
 |---|---|
-| 🖥️ **The app** | **http://localhost:5173** |
-| 📖 API docs (Swagger) | http://localhost:8000/docs |
-| ❤️ Health check | http://localhost:8000/health |
+| Web application | http://localhost:5173 |
+| API documentation (Swagger) | http://localhost:8000/docs |
+| Health check | http://localhost:8000/health |
+| Metrics (Prometheus) | http://localhost:8000/metrics |
 
-The backend **automatically** waits for the database, runs migrations, and seeds demo data
-(1 depot, 20 vehicles, ~150 orders across Delhi NCR). You land on a fully populated app.
+### Demo accounts
 
-### 🔑 Log in with a demo account
+| Role | Email | Password |
+|---|---|---|
+| Dispatcher | `dispatcher@routeos.dev` | `dispatch12345` |
+| Admin | `admin@routeos.dev` | `admin12345` |
+| Viewer | `viewer@routeos.dev` | `viewer12345` |
 
-| Role | Email | Password | Can do |
-|---|---|---|---|
-| 🟣 **Dispatcher** *(use this)* | `dispatcher@routeos.dev` | `dispatch12345` | Everything operational |
-| 🔴 Admin | `admin@routeos.dev` | `admin12345` | Full access |
-| 🔵 Viewer | `viewer@routeos.dev` | `viewer12345` | Read-only |
-
-> The login screen has one-click buttons for each account — no typing needed.
+The login screen provides one-click sign-in for each account.
 
 ---
 
-## 🎬 The 60-second demo (try this after logging in)
+## Demo Walkthrough
 
-> This exact flow works end-to-end — I verified it against the running stack.
+The full product loop — plan, optimize, dispatch, track, disrupt, recover — runs end to end:
 
-1. **📊 Dashboard** — see live KPIs: 150 orders, 20 vehicles, charts.
-2. **✦ Route Planner** — click **“Select 50”** orders → **“Select all vehicles”** → pick **Balanced** → hit **⚙ Optimize Routes**.
-   - Real Google OR-Tools runs. You get colored route lines on the map + a **baseline comparison** showing the % distance/vehicle savings.
-3. Click **Accept Plan** — routes are saved, orders become `ASSIGNED`.
-4. **◉ Live Operations** — set speed **20×** → **▶ Start Simulation**.
-   - Vehicles start moving on the map (streamed from the backend over WebSockets). Orders flip `OUT_FOR_DELIVERY → DELIVERED` in real time.
-5. Click an active route → hit **severe** traffic → a delay warning appears → click **Reoptimize** → the remaining stops re-sequence live.
-6. When a vehicle finishes, it returns to the depot, the route goes `COMPLETED`, and **📈 Analytics** updates.
-
-That's the whole product loop: **plan → optimize → dispatch → track → disrupt → recover.**
+1. **Dashboard** — review operational KPIs and charts derived from live data.
+2. **Route Planner** — select orders and vehicles, choose an objective, and run the optimizer.
+   Google OR-Tools computes the routes and returns a baseline comparison showing the measured
+   distance and vehicle savings, rendered as color-coded polylines on the map.
+3. **Accept Plan** — persist the plan; orders transition to `ASSIGNED`.
+4. **Live Operations** — start the simulation (1×/5×/20×). Vehicles move along their routes,
+   streamed from the backend over WebSockets, and orders progress
+   `OUT_FOR_DELIVERY → DELIVERED` in real time.
+5. **Disruption** — apply traffic to an active route to introduce a delay and surface at-risk
+   deliveries, then re-optimize the remaining stops.
+6. **Completion** — vehicles return to the depot, routes close as `COMPLETED`, and Analytics
+   reflects the delivered volume and optimization savings.
 
 ---
 
-## 🖼️ Screenshots
+## Screenshots
 
-_Add images to a `docs/` folder and link them here (e.g. dashboard, route planner with polylines, live map)._
+Add images to a `docs/` directory and reference them below.
 
 | Route Planner | Live Operations |
 |---|---|
-| _optimize + baseline comparison_ | _live vehicle movement + traffic_ |
+| _Optimization result with baseline comparison_ | _Real-time vehicle tracking and traffic disruption_ |
 
 ---
 
-## 🧩 What's inside
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -104,136 +120,109 @@ flowchart TD
     SIM -->|broadcast events| UI
 ```
 
-<details>
-<summary><b>✨ Feature list (click to expand)</b></summary>
+A detailed treatment of the data model, real-time flow, optimization workflow, and scaling strategy
+is available in [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md).
 
-- **Auth & roles** — JWT login, `ADMIN` / `DISPATCHER` / `VIEWER` permissions, protected routes.
-- **Orders / Fleet / Depots** — full CRUD, filtering, search, pagination.
-- **Real VRP optimization** — OR-Tools with vehicle capacity, delivery time windows, service time,
-  per-vehicle max distance, priority-weighted assignment, 3 objectives (distance / time / balanced).
-- **Baseline benchmarking** — measured savings vs a naive nearest-neighbour dispatcher.
-- **Accept / Discard workflow** — plans only become active routes when you accept them.
-- **Real-time simulation** — the *backend* moves vehicles; the browser only renders truth. Speed 1× / 5× / 20×.
-- **Traffic + re-optimization** — disrupt a live route and re-sequence its remaining stops.
-- **PostGIS geospatial** — `ST_DWithin` / `ST_Distance` “nearby vehicles/orders” endpoints, spatial indexes.
-- **Dashboard & analytics** — SQL-aggregated KPIs and charts, Redis-cached.
-- **Observability** — structured JSON logs w/ request IDs, `/health`, Prometheus `/metrics`.
+---
 
-</details>
+## Features
 
-<details>
-<summary><b>🛠️ Tech stack (click to expand)</b></summary>
+- **Authentication and authorization** — JWT authentication with `ADMIN`, `DISPATCHER`, and
+  `VIEWER` roles enforced on protected routes.
+- **Order, fleet, and depot management** — full CRUD with filtering, search, and pagination.
+- **Vehicle Routing Problem optimization** — OR-Tools model with vehicle capacity, delivery time
+  windows, service time, per-vehicle distance limits, priority-weighted assignment, and three
+  objectives (distance, time, balanced).
+- **Baseline benchmarking** — measured savings against a nearest-neighbour heuristic.
+- **Plan review workflow** — optimization results become active routes only when accepted.
+- **Real-time simulation** — the backend is the source of truth for vehicle movement; the client
+  renders published events over WebSockets.
+- **Traffic and re-optimization** — disrupt a live route and re-sequence its remaining stops.
+- **Geospatial queries** — PostGIS `ST_DWithin` / `ST_Distance` proximity endpoints with spatial
+  indexes.
+- **Dashboard and analytics** — SQL-aggregated KPIs and charts with Redis caching.
+- **Observability** — structured JSON logging with request IDs, a health endpoint, and Prometheus
+  metrics.
+
+---
+
+## Technology Stack
 
 | Layer | Technologies |
 |---|---|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query, Zustand, Leaflet + OpenStreetMap, Recharts |
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 (async), Pydantic v2, Alembic |
 | Data | PostgreSQL 16 + PostGIS 3.4, Redis 7 |
-| Optimization | Google OR-Tools (routing/CP), Haversine fallback, optional OSRM |
-| Realtime | FastAPI WebSockets, asyncio simulation loop |
-| Infra | Docker, Docker Compose, nginx |
-
-</details>
+| Optimization | Google OR-Tools, Haversine fallback, optional OSRM routing |
+| Real-time | FastAPI WebSockets, asyncio simulation loop |
+| Infrastructure | Docker, Docker Compose, nginx |
 
 ---
 
-## 🩹 Troubleshooting
-
-<details open>
-<summary><b>“port is already allocated” (most common)</b></summary>
-
-You already have a local PostgreSQL or Redis using the default ports. RouteOS lets you change the
-**host-side** ports without touching anything internal. Edit `.env`:
-
-```env
-POSTGRES_HOST_PORT=55432   # any free port
-REDIS_HOST_PORT=6380
-```
-Then `docker compose up` again. (The frontend `5173` and backend `8000` also need to be free.)
-</details>
-
-<details>
-<summary><b>Docker says it can't connect / daemon not running</b></summary>
-
-Start **Docker Desktop** first and wait until its whale icon is steady, then re-run `docker compose up`.
-</details>
-
-<details>
-<summary><b>Reset everything (fresh database)</b></summary>
+## Testing and Benchmarks
 
 ```bash
-docker compose down -v      # -v also deletes the seeded DB volume
-docker compose up --build
-```
-</details>
-
-<details>
-<summary><b>Generate more demo orders (load testing)</b></summary>
-
-```bash
-docker compose exec backend python -m scripts.generate_demo_orders --count 500 --depot 1
-```
-</details>
-
----
-
-## 🌐 Want a public live URL?
-
-RouteOS is **local-first** — the fastest way for anyone to try it is the one command above, which
-runs the *entire* stack (database + cache + API + UI) on their machine in a couple of minutes.
-
-Want an actual shareable link? This repo ships a **one-click deploy blueprint** for
-[Render](https://render.com)'s free tier — it provisions Postgres (PostGIS) + Redis + backend +
-frontend from [`render.yaml`](render.yaml):
-
-**➡️ Full step-by-step guide: [DEPLOY.md](DEPLOY.md)**
-
-> Free instances sleep after ~15 min idle and cold-start in ~50s — great for a portfolio demo.
-> The same setup also works on **Railway** and **Fly.io**.
-
----
-
-## 🧪 Tests & benchmarks
-
-```bash
-# Backend (real OR-Tools constraint tests + geospatial) — 9 tests
+# Backend test suite (OR-Tools constraint tests + geospatial)
 docker compose exec backend python -m pytest -q
 
-# Optimization benchmark vs the naive baseline
+# Optimization benchmark against the naive baseline
 docker compose exec backend python -m scripts.benchmark --sizes 50 100 250
 ```
 
-**Measured** distance reduction vs baseline (synthetic NCR orders, 12 vehicles):
+Representative benchmark results (synthetic Delhi NCR orders, 12 vehicles):
 
-| Orders | Optimized | Baseline | Distance saved | Assigned |
+| Orders | Optimized | Baseline | Distance Reduction | Assigned |
 |---:|---:|---:|---:|---:|
-| 50 | 261.6 km | 346.8 km | **24.6%** | 50/50 |
-| 100 | 375.0 km | 576.4 km | **34.9%** | 100/100 |
-| 250 | 786.5 km | 981.3 km | **19.9%** | 250/250 |
+| 50 | 261.6 km | 346.8 km | 24.6% | 50 / 50 |
+| 100 | 375.0 km | 576.4 km | 34.9% | 100 / 100 |
+| 250 | 786.5 km | 981.3 km | 19.9% | 250 / 250 |
 
-> Numbers vary with random seed / hardware / solver time budget.
-
----
-
-## 📚 Learn more
-
-- **[architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md)** — full system design, data model,
-  real-time flow, and how it would scale from 100 → 1,000,000 deliveries/day.
-- **`/docs`** (when running) — interactive Swagger API reference.
+Results vary with random seed, hardware, and solver time budget.
 
 ---
 
-## ⚠️ Honest limitations
+## Deployment
 
-- The fleet movement is a **simulation**, not real GPS (clearly labelled as such).
-- Optimization is a **heuristic under a time budget**, not proven-optimal (VRP is NP-hard).
-- No AI/ML — the engine is operations-research / constraint optimization.
+RouteOS runs locally with a single command, and includes a [Render](https://render.com) Blueprint
+([`render.yaml`](render.yaml)) that provisions PostgreSQL (PostGIS), Redis, the backend API, and the
+frontend on a free tier for a shareable public URL. See **[DEPLOY.md](DEPLOY.md)** for step-by-step
+instructions. The same configuration also applies to Railway and Fly.io.
 
 ---
 
-## 📝 Resume line
+## Configuration
 
-> Built RouteOS, a full-stack logistics & fleet-optimization platform: constraint-based Vehicle
-> Routing (Google OR-Tools) over PostgreSQL/PostGIS, with real-time backend-driven route simulation
-> over WebSockets (FastAPI, React/TypeScript, Redis, Docker), and baseline benchmarking that
-> quantified ~20–35% reductions in fleet distance.
+All configuration is supplied through environment variables; see [`.env.example`](.env.example) for
+the full list, including database and Redis URLs, JWT secret, CORS origins, routing parameters
+(`USE_OSRM`, `ROAD_DISTANCE_FACTOR`, `AVERAGE_SPEED_KMH`, `SOLVER_TIME_LIMIT_SECONDS`), and demo
+credentials. Secrets are never committed; `.env` is git-ignored.
+
+If a local PostgreSQL or Redis already occupies the default ports, override the published host
+ports in `.env`:
+
+```env
+POSTGRES_HOST_PORT=55432
+REDIS_HOST_PORT=6380
+```
+
+To reset the environment and reseed the database:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+---
+
+## Design Notes and Limitations
+
+- Fleet movement is a **simulation** for demonstration purposes, not real GPS telemetry.
+- Optimization is a **heuristic under a wall-clock time budget** and is not guaranteed optimal;
+  the Vehicle Routing Problem is NP-hard.
+- The optimization engine is operations-research / constraint optimization, not machine learning.
+
+---
+
+## License
+
+Released under the MIT License.
