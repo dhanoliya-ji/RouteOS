@@ -1,0 +1,66 @@
+# RouteOS — Render Blueprint (free tier) for a public live demo.
+# Deploy: push this repo to GitHub, then on https://render.com →
+#   New → Blueprint → pick this repo. Render reads this file and provisions everything.
+#
+# Services: managed Postgres (PostGIS), Key Value (Redis), backend (Docker), frontend (Docker).
+# Free web services sleep after ~15 min idle and cold-start in ~50s — fine for a demo.
+#
+# NOTE: the frontend URLs below assume the service names resolve to
+#   https://routeos-backend.onrender.com. If Render appends a suffix (because a name
+#   is taken), update VITE_API_BASE_URL / VITE_WS_BASE_URL to match the backend URL.
+
+databases:
+  - name: routeos-db
+    plan: free
+    postgresMajorVersion: "16"
+    # PostGIS is created by the Alembic migration (CREATE EXTENSION postgis).
+
+services:
+  # --- Redis / Key Value ---
+  - type: keyvalue
+    name: routeos-redis
+    plan: free
+    ipAllowList: []   # only reachable from Render services
+
+  # --- Backend API (FastAPI, Docker) ---
+  - type: web
+    name: routeos-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL          # standard postgres URL; app coerces the driver
+        fromDatabase:
+          name: routeos-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: routeos-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true        # Render generates a strong secret
+      - key: BACKEND_CORS_ORIGINS
+        value: https://routeos-frontend.onrender.com
+      - key: ENVIRONMENT
+        value: production
+
+  # --- Frontend (Vite SPA as a free Static Site) ---
+  # Static Sites reliably expose VITE_* env vars at build time and are free + fast.
+  - type: web
+    name: routeos-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://routeos-backend.onrender.com
+      - key: VITE_WS_BASE_URL
+        value: wss://routeos-backend.onrender.com
+    routes:
+      - type: rewrite       # SPA fallback: all client routes -> index.html
+        source: /*
+        destination: /index.html
