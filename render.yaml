@@ -55,6 +55,13 @@ services:
         value: ^https://[a-z0-9-]+\.onrender\.com$
       - key: ENVIRONMENT
         value: production
+      - key: SOLVER_TIME_LIMIT_SECONDS
+        # Free instances get a small fraction of a CPU, so the default 15s buys
+        # far fewer guided-local-search iterations than the same budget does on
+        # a dev machine — enough that the solver was returning near-first-
+        # solution plans that lost to the naive baseline. The budget is
+        # wall-clock, so a larger value restores solution quality here.
+        value: "60"
 
   # --- Frontend (Vite SPA as a free static site) ---
   - type: web
