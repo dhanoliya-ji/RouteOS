@@ -23,4 +23,7 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 # Strip CR characters so the script runs even when checked out on Windows (CRLF).
 RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Bind the port the platform assigns. Managed hosts (Render, Railway, Fly) inject
+# $PORT and route traffic there; a hardcoded port makes the health check fail.
+# Falls back to 8000 for docker-compose and local runs.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -57,6 +57,21 @@ are expanded to `https://<host>` (see [`backend/app/core/config.py`](backend/app
   hostname, so add your custom domain to `BACKEND_CORS_ORIGINS` as an extra comma-separated value
   if you use one.
 
+## Troubleshooting a failed deploy
+
+Open the **routeos-backend** service → **Logs**, and match the last line before it died:
+
+| Log line | Cause | Fix |
+|---|---|---|
+| `Postgres at postgres:5432 never became reachable` | The container is resolving the *compose* hostname instead of the managed database. | Fixed — the entrypoint now parses the host out of `DATABASE_URL`. Make sure `DATABASE_URL` is populated on the service (Blueprint sets it via `fromDatabase`). |
+| Health check never passes / `no open ports detected` | The app is bound to a port the platform isn't routing to. | Fixed — the image binds `$PORT` and falls back to 8000. |
+| `CREATE EXTENSION postgis` permission denied | The database isn't a PostGIS-capable instance. | Render's managed Postgres allows PostGIS; confirm the DB was created by this Blueprint, not an external one. |
+| Build killed / out of memory | `ortools` is a large wheel and free build instances are small. | Retry the deploy; if it persists, upgrade the build instance temporarily for the first build. |
+
+After pushing a fix, use **Manual Sync** on the Blueprint (or **Manual Deploy → Clear build cache
+& deploy** on the backend) to pick up the new commit. Because the first deploy failed, the
+frontend was cancelled — re-syncing creates it once the backend is healthy.
+
 ## Other hosts
 
 The same four services deploy just as well on **Railway** or **Fly.io** — provide
