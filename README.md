@@ -214,20 +214,27 @@ a 0% gain.
 #### A note on the live demo
 
 The hosted demo runs on a free instance with roughly **1/15th of a local CPU core**. The solver's
-budget is wall-clock, so it completes far fewer guided-local-search iterations there. Measured on
-the same 150-order dataset:
+budget is wall-clock, so it completes far fewer guided-local-search iterations there. Measured
+locally on the seeded dataset, varying the budget to emulate the available CPU-time:
 
-| Orders | CPU budget | Result vs baseline |
+| Orders | CPU-time | Result vs baseline |
 |---:|---:|---:|
-| 50 | ~3 CPU-s | **+20.7%** |
-| 80 | ~3 CPU-s | **+10.2%** |
-| 150 | ~3 CPU-s | −0.9% → **dispatches baseline instead (0%)** |
-| 150 | 15 CPU-s | **+7.0%**, and 6 vehicles instead of 7 |
+| 50 | ~3 CPU-s | **+20.7%** distance |
+| 80 | ~3 CPU-s | **+10.2%** distance |
+| 150 | ~3 CPU-s | −0.9% → **dispatches the baseline instead (0%)** |
+| 150 | 15 CPU-s | **+7.0%** distance, and 6 vehicles instead of 7 |
 
-So on the live demo, **use the planner's *Select 50*** (the documented walkthrough) to see the
-optimizer at its best. Asking it to solve all 150 orders at once on free-tier hardware is where it
-runs out of search budget — and the app tells you when that happens instead of pretending.
-Locally, the full 150-order run converges to +7% in 15 seconds.
+What this means for the live demo, measured on it directly:
+
+- **50 orders** → the solver wins, typically on **fleet size** rather than distance
+  (a real run: 4 vehicles vs the baseline's 5, **−20%**, at 397.63 km vs 399.33 km).
+- **All 150 orders** → the solver runs out of search budget, and the app **dispatches the baseline
+  and says so** instead of shipping a worse plan.
+
+The size of the win varies with which orders you select — the table above is one fixed subset, not
+a promise. The reliable claim is the guarantee: **the dispatched plan is never worse than routing
+by hand.** For the full-strength result (+7% and one fewer vehicle on all 150 orders), run it
+locally, where the solver gets a whole core.
 
 ### The simulation engine
 
