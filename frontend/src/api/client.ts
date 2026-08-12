@@ -1,5 +1,30 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-export const WS_BASE = import.meta.env.VITE_WS_BASE_URL || "ws://localhost:8000";
+/**
+ * Resolve the backend origin at build time.
+ *
+ * Three inputs are supported, in priority order:
+ *   1. VITE_API_BASE_URL / VITE_WS_BASE_URL — explicit, full origins.
+ *   2. VITE_API_HOST — a bare hostname (e.g. "routeos-backend.onrender.com").
+ *      Managed hosts like Render can inject the backend's hostname into the
+ *      frontend build automatically, but only without a scheme — so we add it.
+ *   3. localhost defaults for `docker compose` / `npm run dev`.
+ */
+const apiHost = import.meta.env.VITE_API_HOST?.trim();
+
+function fromHost(host: string, secure: "https" | "wss"): string {
+  // A bare host is always remote (managed hosts terminate TLS), so use the
+  // secure scheme. Tolerate a host that already carries a scheme.
+  if (/^[a-z]+:\/\//i.test(host)) return host;
+  return `${secure}://${host}`;
+}
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  (apiHost ? fromHost(apiHost, "https") : "http://localhost:8000");
+
+export const WS_BASE =
+  import.meta.env.VITE_WS_BASE_URL ||
+  (apiHost ? fromHost(apiHost, "wss") : "ws://localhost:8000");
+
 export const API_V1 = `${API_BASE}/api/v1`;
 
 const TOKEN_KEY = "routeos_token";

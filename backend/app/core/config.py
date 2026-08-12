@@ -55,7 +55,27 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [o.strip() for o in self.backend_cors_origins.split(",") if o.strip()]
+        """Allowed origins, normalised to full origins.
+
+        Managed hosts (Render et al.) can inject a peer service's *bare hostname*
+        with no scheme. CORS matching is exact, so a bare host would never match
+        a browser's `Origin` header — expand it to a proper origin here.
+        """
+        origins: list[str] = []
+        for raw in self.backend_cors_origins.split(","):
+            origin = raw.strip().rstrip("/")
+            if not origin:
+                continue
+            if "://" in origin:
+                origins.append(origin)
+                continue
+            # Bare host: local names stay http, anything else is TLS-terminated.
+            host_only = origin.split(":")[0]
+            if host_only in ("localhost", "127.0.0.1"):
+                origins.append(f"http://{origin}")
+            else:
+                origins.append(f"https://{origin}")
+        return origins
 
     # Optimization / routing
     osrm_base_url: str = "https://router.project-osrm.org"

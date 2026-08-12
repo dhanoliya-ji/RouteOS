@@ -101,7 +101,16 @@ async def reoptimize_route(db: AsyncSession, route_id: int) -> dict:
     """
     route = (
         await db.execute(
-            select(Route).options(selectinload(Route.stops), selectinload(Route.depot)).where(Route.id == route_id)
+            select(Route)
+            .options(
+                selectinload(Route.stops),
+                selectinload(Route.depot),
+                # Eager-load the vehicle too: it is read below to seed the
+                # re-route from the vehicle's live position, and an async
+                # lazy-load here would raise MissingGreenlet.
+                selectinload(Route.vehicle),
+            )
+            .where(Route.id == route_id)
         )
     ).scalar_one_or_none()
     if route is None:
@@ -123,8 +132,10 @@ async def reoptimize_route(db: AsyncSession, route_id: int) -> dict:
 
     # Start the sub-problem from the vehicle's current position.
     veh = route.vehicle
-    start_lat = veh.current_latitude if veh and veh.current_latitude else route.depot.latitude
-    start_lon = veh.current_longitude if veh and veh.current_longitude else route.depot.longitude
+    if veh is None:
+        raise APIError("ROUTE_HAS_NO_VEHICLE", "This route has no assigned vehicle to re-optimize", 409)
+    start_lat = veh.current_latitude if veh.current_latitude else route.depot.latitude
+    start_lon = veh.current_longitude if veh.current_longitude else route.depot.longitude
 
     order_nodes = [
         OrderNode(

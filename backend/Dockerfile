@@ -20,6 +20,7 @@ EXPOSE 8000
 
 # entrypoint runs migrations + seed, then starts uvicorn
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Strip CR characters so the script runs even when checked out on Windows (CRLF).
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

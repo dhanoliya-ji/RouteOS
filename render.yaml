@@ -1,19 +1,24 @@
 # RouteOS — Render Blueprint (free tier) for a public live demo.
+#
 # Deploy: push this repo to GitHub, then on https://render.com →
-#   New → Blueprint → pick this repo. Render reads this file and provisions everything.
+#   New → Blueprint → pick this repo → Apply. Render reads this file and
+#   provisions everything below.
 #
-# Services: managed Postgres (PostGIS), Key Value (Redis), backend (Docker), frontend (Docker).
-# Free web services sleep after ~15 min idle and cold-start in ~50s — fine for a demo.
+# Services: managed Postgres (PostGIS), Key Value (Redis), backend (Docker),
+# frontend (static site).
 #
-# NOTE: the frontend URLs below assume the service names resolve to
-#   https://routeos-backend.onrender.com. If Render appends a suffix (because a name
-#   is taken), update VITE_API_BASE_URL / VITE_WS_BASE_URL to match the backend URL.
+# Free web services sleep after ~15 min idle and cold-start in ~50s — fine for
+# a portfolio demo, not for production traffic.
+#
+# Every cross-service URL is wired with `fromService`, so this blueprint works
+# unchanged even when Render appends a suffix to a service name (which it does
+# when a name is already taken globally). Nothing here needs hand-editing.
 
 databases:
   - name: routeos-db
     plan: free
     postgresMajorVersion: "16"
-    # PostGIS is created by the Alembic migration (CREATE EXTENSION postgis).
+    # PostGIS is enabled by the first Alembic migration (CREATE EXTENSION postgis).
 
 services:
   # --- Redis / Key Value ---
@@ -31,7 +36,7 @@ services:
     dockerContext: ./backend
     healthCheckPath: /health
     envVars:
-      - key: DATABASE_URL          # standard postgres URL; app coerces the driver
+      - key: DATABASE_URL          # standard postgres URL; the app coerces the driver
         fromDatabase:
           name: routeos-db
           property: connectionString
@@ -43,23 +48,30 @@ services:
       - key: SECRET_KEY
         generateValue: true        # Render generates a strong secret
       - key: BACKEND_CORS_ORIGINS
-        value: https://routeos-frontend.onrender.com
+        # Resolves to the frontend's bare hostname; the backend expands a
+        # scheme-less entry to https://<host> (see core/config.cors_origins).
+        fromService:
+          type: web
+          name: routeos-frontend
+          property: host
       - key: ENVIRONMENT
         value: production
 
-  # --- Frontend (Vite SPA as a free Static Site) ---
-  # Static Sites reliably expose VITE_* env vars at build time and are free + fast.
+  # --- Frontend (Vite SPA as a free static site) ---
   - type: web
     name: routeos-frontend
     runtime: static
     rootDir: frontend
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     envVars:
-      - key: VITE_API_BASE_URL
-        value: https://routeos-backend.onrender.com
-      - key: VITE_WS_BASE_URL
-        value: wss://routeos-backend.onrender.com
+      - key: VITE_API_HOST
+        # Bare backend hostname; the client derives https:// and wss:// from it
+        # (see src/api/client.ts). This is what makes the blueprint name-proof.
+        fromService:
+          type: web
+          name: routeos-backend
+          property: host
     routes:
       - type: rewrite       # SPA fallback: all client routes -> index.html
         source: /*
