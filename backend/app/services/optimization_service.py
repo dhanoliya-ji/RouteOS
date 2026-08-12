@@ -47,6 +47,37 @@ def _pct(before: float, after: float) -> float:
     return round((before - after) / before * 100.0, 1)
 
 
+# Distance-equivalent cost of putting one more vehicle on the road. This mirrors
+# VEHICLE_FIXED_COST in the solver model (300_000 metre-equivalents = 300 km), so
+# the two plans are ranked by the same trade-off the solver itself optimises.
+VEHICLE_COST_KM_EQUIVALENT = 300.0
+
+
+def _plan_cost(result: SolveResult) -> float:
+    distance = sum(r.total_distance_km for r in result.routes)
+    return distance + VEHICLE_COST_KM_EQUIVALENT * len(result.routes)
+
+
+def _better_plan(
+    baseline: SolveResult, optimized: SolveResult, total_orders: int
+) -> tuple[SolveResult, str]:
+    """Pick the plan to dispatch, preferring the solver on ties.
+
+    Serving more orders always wins: a cheaper plan that strands deliveries is
+    not actually better. Otherwise the model's own distance/vehicle trade-off
+    decides.
+    """
+    opt_assigned = sum(len(r.stops) for r in optimized.routes)
+    base_assigned = sum(len(r.stops) for r in baseline.routes)
+    if opt_assigned != base_assigned:
+        return (
+            (optimized, "solver") if opt_assigned > base_assigned else (baseline, "baseline")
+        )
+    if _plan_cost(baseline) < _plan_cost(optimized):
+        return baseline, "baseline"
+    return optimized, "solver"
+
+
 def _comparison(baseline: SolveResult, optimized: SolveResult, total_orders: int) -> dict:
     b = _metrics(baseline, total_orders)
     o = _metrics(optimized, total_orders)
@@ -162,21 +193,36 @@ async def run_optimization(db: AsyncSession, req: OptimizationRequest) -> Optimi
         )
         elapsed_ms = int((_time.perf_counter() - started) * 1000)
 
-        comparison = _comparison(baseline, optimized, len(orders))
+        # Take whichever plan is actually better. The VRP solver is a heuristic
+        # under a wall-clock budget: on a large instance with little CPU it can
+        # stop while still worse than the greedy baseline, and shipping that
+        # would mean dispatching a plan a human router would have beaten.
+        # Running both and keeping the winner is standard portfolio practice.
+        chosen, plan_source = _better_plan(baseline, optimized, len(orders))
+
+        comparison = _comparison(baseline, chosen, len(orders))
         opt_metrics = comparison["optimized"]
 
         payload = {
             "objective": req.objective.value,
-            "routes": [_route_to_dict(r) for r in optimized.routes],
+            "routes": [_route_to_dict(r) for r in chosen.routes],
             "unassigned": [
                 {"order_id": u.order_id, "order_number": u.order_number, "reason": u.reason}
-                for u in optimized.unassigned
+                for u in chosen.unassigned
             ],
             "comparison": comparison,
-            "objective_value": optimized.objective_value,
+            "objective_value": chosen.objective_value,
             "execution_time_ms": elapsed_ms,
             "matrix_source": optimized.matrix_source,
             "horizon": horizon.isoformat(),
+            # Which heuristic produced the dispatched plan. "baseline" means the
+            # solver failed to beat greedy within its time budget — a signal to
+            # raise SOLVER_TIME_LIMIT_SECONDS or give the service more CPU.
+            "plan_source": plan_source,
+            "solver_plan": {
+                "total_distance_km": round(sum(r.total_distance_km for r in optimized.routes), 2),
+                "vehicles_used": len(optimized.routes),
+            },
         }
 
         run.status = OptimizationStatus.COMPLETED

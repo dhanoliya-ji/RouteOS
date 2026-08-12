@@ -198,8 +198,23 @@ export default function RoutePlanner() {
                   </button>
                   <button className="btn-ghost flex-1" onClick={() => setRun(null)}>Discard</button>
                 </div>
+                {payload!.plan_source === "baseline" && (
+                  // Be explicit rather than quietly presenting a 0% gain: the
+                  // solver ran out of time budget and the greedy plan won.
+                  <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+                    <b>Baseline plan dispatched.</b> The solver did not beat the nearest-neighbour
+                    plan within its {Math.round(run.execution_time_ms! / 1000)}s budget
+                    {payload!.solver_plan
+                      ? ` (its best was ${payload!.solver_plan.total_distance_km} km on ${payload!.solver_plan.vehicles_used} vehicles)`
+                      : ""}
+                    , so the better plan was kept. Raise <code>SOLVER_TIME_LIMIT_SECONDS</code> or
+                    give the service more CPU to improve on this.
+                  </div>
+                )}
                 <div className="text-[11px] text-ink-400">
-                  Solver: {payload!.matrix_source} matrix · objective {run.objective} · {run.execution_time_ms} ms
+                  Solver: {payload!.matrix_source} matrix · objective {run.objective} ·{" "}
+                  {run.execution_time_ms} ms
+                  {payload!.plan_source ? ` · plan: ${payload!.plan_source}` : ""}
                 </div>
               </div>
             )}

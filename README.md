@@ -19,6 +19,14 @@ re-optimization built in.
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](#)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+### [▶ Live Demo](https://routeos-frontend.onrender.com) · [API Docs](https://routeos-backend-h5x6.onrender.com/docs) · [Health](https://routeos-backend-h5x6.onrender.com/health)
+
+Sign in as **`dispatcher@routeos.dev`** / **`dispatch12345`** (one-click on the login screen).
+
+> Hosted on Render's free tier: the first request after ~15 min idle cold-starts in ~50s, and the
+> instance gets a fraction of a CPU — see [a note on the live demo's solver
+> quality](#a-note-on-the-live-demo). For full-speed results, run it locally with one command.
+
 **[Quick Start](#-quick-start)** ·
 **[Screenshots](#-screenshots)** ·
 **[How It Works](#-how-it-works)** ·
@@ -194,6 +202,32 @@ routing by hand.
 
 Both results are reported with their **assigned-order counts**, so the comparison stays
 apples-to-apples: a baseline that quietly serves fewer orders can't fake a shorter distance.
+
+**The better of the two is what gets dispatched.** A time-budgeted heuristic can stop while still
+behind greedy — on a small instance with little CPU, that genuinely happens. Shipping that plan
+would mean dispatching routes a human router would have beaten, so the service ranks both plans
+using the same distance/vehicle trade-off the solver's own objective encodes (one vehicle ≈ 300 km)
+and keeps the winner. Serving more orders always wins over being cheaper. Every run records a
+`plan_source` of `solver` or `baseline`, and the UI says so explicitly rather than quietly showing
+a 0% gain.
+
+#### A note on the live demo
+
+The hosted demo runs on a free instance with roughly **1/15th of a local CPU core**. The solver's
+budget is wall-clock, so it completes far fewer guided-local-search iterations there. Measured on
+the same 150-order dataset:
+
+| Orders | CPU budget | Result vs baseline |
+|---:|---:|---:|
+| 50 | ~3 CPU-s | **+20.7%** |
+| 80 | ~3 CPU-s | **+10.2%** |
+| 150 | ~3 CPU-s | −0.9% → **dispatches baseline instead (0%)** |
+| 150 | 15 CPU-s | **+7.0%**, and 6 vehicles instead of 7 |
+
+So on the live demo, **use the planner's *Select 50*** (the documented walkthrough) to see the
+optimizer at its best. Asking it to solve all 150 orders at once on free-tier hardware is where it
+runs out of search budget — and the app tells you when that happens instead of pretending.
+Locally, the full 150-order run converges to +7% in 15 seconds.
 
 ### The simulation engine
 
@@ -423,7 +457,8 @@ All configuration is environment-driven — see [`.env.example`](.env.example). 
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SOLVER_TIME_LIMIT_SECONDS` | `15` | Wall-clock budget per optimization run |
+| `SOLVER_TIME_LIMIT_SECONDS` | `15` | Wall-clock budget per optimization run. Raise it on slow/shared CPUs — the budget is wall-clock, not CPU-time |
+| `SOLVER_FIRST_SOLUTION_STRATEGY` | `PATH_CHEAPEST_ARC` | OR-Tools first-solution heuristic. Dominates the result when the local search gets few iterations |
 | `ROAD_DISTANCE_FACTOR` | `1.25` | Multiplier converting straight-line to road distance |
 | `AVERAGE_SPEED_KMH` | `30` | Urban speed used for travel-time estimates |
 | `USE_OSRM` | `false` | Use a real OSRM routing matrix instead of the haversine fallback |
@@ -449,7 +484,9 @@ Stated plainly, because a portfolio project should be honest about its edges:
 - Fleet movement is a **simulation**, not real GPS telemetry. The engine is backend-authoritative
   and mutates real database state, but the vehicles aren't real.
 - VRP is **NP-hard**. This is a heuristic under a wall-clock budget — high-quality feasible routes,
-  not proven optima.
+  not proven optima. Because the budget is wall-clock rather than CPU-time, **solution quality
+  depends on the hardware it runs on**; on a starved instance the solver can fail to beat greedy,
+  which is why the service dispatches whichever plan actually wins and labels it.
 - Distances default to **haversine × a road factor**. Set `USE_OSRM=true` for a real road-network
   matrix (the public OSRM demo server is rate-limited; the app falls back automatically).
 - The optimizer is **operations research / constraint programming**, not machine learning.

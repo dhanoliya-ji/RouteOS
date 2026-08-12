@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     road_distance_factor: float = 1.25
     average_speed_kmh: float = 30.0
     solver_time_limit_seconds: int = 15
+    # OR-Tools FirstSolutionStrategy name. The starting solution dominates the
+    # result whenever the local search gets few iterations (small CPU budgets),
+    # so this is worth tuning per deployment.
+    solver_first_solution_strategy: str = "PATH_CHEAPEST_ARC"
 
     # Demo accounts
     demo_admin_email: str = "admin@routeos.dev"

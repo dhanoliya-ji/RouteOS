@@ -148,6 +148,10 @@ export interface OptimizationRun {
     objective_value: number;
     execution_time_ms: number;
     matrix_source: string;
+    /** Which heuristic produced the dispatched plan. "baseline" means the
+     *  solver did not beat greedy within its time budget. */
+    plan_source?: "solver" | "baseline";
+    solver_plan?: { total_distance_km: number; vehicles_used: number };
   } | null;
 }
 
