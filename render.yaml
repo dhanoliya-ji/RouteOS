@@ -55,6 +55,11 @@ services:
         value: ^https://[a-z0-9-]+\.onrender\.com$
       - key: ENVIRONMENT
         value: production
+      - key: SOLVER_ASYNC_TIME_LIMIT_SECONDS
+        # Background solves are not bound to an HTTP request, so the budget can
+        # be minutes. This is what lets a fraction-of-a-CPU instance still reach
+        # a plan that beats the greedy baseline.
+        value: "240"
       - key: SOLVER_TIME_LIMIT_SECONDS
         # Free instances get a small fraction of a CPU, so the default 15s buys
         # far fewer guided-local-search iterations than the same budget does on

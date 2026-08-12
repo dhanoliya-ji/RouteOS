@@ -224,6 +224,19 @@ locally on the seeded dataset, varying the budget to emulate the available CPU-t
 | 150 | ~3 CPU-s | −0.9% → **dispatches the baseline instead (0%)** |
 | 150 | 15 CPU-s | **+7.0%** distance, and 6 vehicles instead of 7 |
 
+**The solve runs as a background job**, so its budget is not capped by how long an HTTP request can
+stay open: `POST /optimization/jobs` returns `202` in ~0.1s with a `PROCESSING` run, and progress
+streams over the same WebSocket as the fleet telemetry. That extra search time is worth a lot —
+measured on the seeded 150-order dataset:
+
+| Budget | Distance | vs baseline |
+|---:|---:|---:|
+| 15s (inline request) | 672.4 km | +7.0% |
+| 180s (background job) | **614.0 km** | **+15.1%** |
+
+Concurrent solves are capped (`MAX_CONCURRENT_OPTIMIZATION_JOBS`, default 2) — each one pins a CPU
+for minutes, so an uncapped public endpoint would starve both the solver and the API.
+
 What this means for the live demo, measured on it directly:
 
 - **50 orders** → the solver wins, typically on **fleet size** rather than distance
@@ -384,15 +397,17 @@ Interactive docs at `/docs` when running. Highlights:
 | `GET` | `/api/v1/orders` | List orders (filter, search, paginate) |
 | `GET` | `/api/v1/orders/nearby` | **PostGIS** radius search, sorted by true distance |
 | `GET` | `/api/v1/vehicles/nearby` | **PostGIS** radius search over the fleet |
-| `POST` | `/api/v1/optimization/run` | **Run the VRP solver** + baseline comparison |
+| `POST` | `/api/v1/optimization/jobs` | **Queue a solve** — returns `202` immediately, progress over WebSocket |
+| `POST` | `/api/v1/optimization/run` | Run the VRP solver inline and block until done |
 | `GET` | `/api/v1/optimization/runs` | Solver run history |
+| `GET` | `/api/v1/optimization/runs/{id}` | Poll a run's status and result |
 | `POST` | `/api/v1/optimization/runs/{id}/accept` | Turn a plan into live routes |
 | `POST` | `/api/v1/optimization/runs/{id}/discard` | Throw the plan away |
 | `POST` | `/api/v1/simulation/start` | Start live simulation |
 | `POST` | `/api/v1/simulation/traffic` | **Inject a traffic disruption** |
 | `POST` | `/api/v1/simulation/routes/{id}/reoptimize` | **Re-sequence remaining stops** |
 | `GET` | `/api/v1/analytics/summary` | Fleet + optimization KPIs |
-| `WS` | `/ws/fleet` | Live event stream |
+| `WS` | `/ws/fleet` | Live event stream — vehicle telemetry plus `OPTIMIZATION_STARTED` / `_PROGRESS` / `_COMPLETED` / `_FAILED` |
 
 <details>
 <summary><b>Example — optimize, then dispatch</b></summary>

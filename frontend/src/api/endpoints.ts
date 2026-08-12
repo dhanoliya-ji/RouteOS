@@ -68,9 +68,20 @@ export const routeApi = {
 };
 
 // --- Optimization ---
+interface OptimizationRequestBody {
+  depot_id: number;
+  order_ids: number[];
+  vehicle_ids: number[];
+  objective: Objective;
+}
+
 export const optimizationApi = {
-  run: (body: { depot_id: number; order_ids: number[]; vehicle_ids: number[]; objective: Objective }) =>
+  /** Solve inline and block until done. Kept for scripts and tests. */
+  run: (body: OptimizationRequestBody) =>
     apiRequest<OptimizationRun>("/optimization/run", { method: "POST", body }),
+  /** Queue a background solve; returns a PROCESSING run to poll or watch over WS. */
+  startJob: (body: OptimizationRequestBody) =>
+    apiRequest<OptimizationRun>("/optimization/jobs", { method: "POST", body }),
   runs: () => apiRequest<OptimizationRun[]>("/optimization/runs"),
   get: (id: number) => apiRequest<OptimizationRun>(`/optimization/runs/${id}`),
   accept: (id: number) => apiRequest<Route[]>(`/optimization/runs/${id}/accept`, { method: "POST" }),

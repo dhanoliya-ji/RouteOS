@@ -9,7 +9,10 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import APIError, not_found
+from app.core.logging import get_logger
+from app.db.session import AsyncSessionLocal
 from app.models.depot import Depot
 from app.models.enums import (
     OptimizationObjective,
@@ -26,6 +29,15 @@ from app.optimization.baseline import nearest_neighbour
 from app.optimization.solver import solve_vrp
 from app.optimization.types import OrderNode, SolveResult, VehicleInput
 from app.schemas.optimization import OptimizationRequest
+from app.websocket.manager import manager
+
+logger = get_logger(__name__)
+
+# Strong references to in-flight background solves. asyncio only holds weak
+# references to tasks, so without this a job can be garbage-collected mid-solve.
+_JOBS: set[asyncio.Task] = set()
+
+_HEARTBEAT_SECONDS = 5
 
 
 def _metrics(result: SolveResult, total_orders: int) -> dict:
@@ -114,7 +126,8 @@ def _route_to_dict(r) -> dict:
     }
 
 
-async def run_optimization(db: AsyncSession, req: OptimizationRequest) -> OptimizationRun:
+async def _load_inputs(db: AsyncSession, req: OptimizationRequest):
+    """Resolve and validate the depot, orders and vehicles for a request."""
     depot = (await db.execute(select(Depot).where(Depot.id == req.depot_id))).scalar_one_or_none()
     if depot is None:
         raise not_found("depot", req.depot_id)
@@ -138,6 +151,13 @@ async def run_optimization(db: AsyncSession, req: OptimizationRequest) -> Optimi
     if not vehicles:
         raise APIError("NO_VEHICLES", "No available vehicles match the request", 422)
 
+    return depot, orders, vehicles
+
+
+async def run_optimization(
+    db: AsyncSession, req: OptimizationRequest, time_limit_seconds: int | None = None
+) -> OptimizationRun:
+    depot, orders, vehicles = await _load_inputs(db, req)
     run = OptimizationRun(
         status=OptimizationStatus.PROCESSING,
         objective=req.objective,
@@ -148,7 +168,18 @@ async def run_optimization(db: AsyncSession, req: OptimizationRequest) -> Optimi
     db.add(run)
     await db.commit()
     await db.refresh(run)
+    return await _execute_run(db, run, req, depot, orders, vehicles, time_limit_seconds)
 
+
+async def _execute_run(
+    db: AsyncSession,
+    run: OptimizationRun,
+    req: OptimizationRequest,
+    depot: Depot,
+    orders: list[Order],
+    vehicles: list[Vehicle],
+    time_limit_seconds: int | None = None,
+) -> OptimizationRun:
     try:
         # Anchor the planning horizon at the earliest delivery window (or now).
         window_starts = [o.delivery_window_start for o in orders if o.delivery_window_start]
@@ -186,7 +217,7 @@ async def run_optimization(db: AsyncSession, req: OptimizationRequest) -> Optimi
         # OR-Tools is CPU-bound; run it off the event loop so the API stays responsive.
         started = _time.perf_counter()
         optimized = await asyncio.to_thread(
-            solve_vrp, depot_coord, order_nodes, vehicle_inputs, req.objective
+            solve_vrp, depot_coord, order_nodes, vehicle_inputs, req.objective, time_limit_seconds
         )
         baseline = await asyncio.to_thread(
             nearest_neighbour, depot_coord, order_nodes, vehicle_inputs
@@ -243,6 +274,117 @@ async def run_optimization(db: AsyncSession, req: OptimizationRequest) -> Optimi
     await db.commit()
     await db.refresh(run)
     return run
+
+
+async def start_optimization_job(
+    db: AsyncSession, req: OptimizationRequest
+) -> OptimizationRun:
+    """Validate the request, persist a PROCESSING run, and solve in the background.
+
+    Returns immediately so the client never holds a connection open for the solve.
+    That is what lets the budget be minutes rather than the seconds an HTTP
+    request can tolerate — on a shared-CPU instance the extra search is the
+    difference between beating the greedy baseline and falling back to it.
+    """
+    # Each solve pins a CPU for minutes. Without a cap, repeated clicks on a
+    # public demo pile up CPU-bound work and starve both the solves and the API.
+    if len(_JOBS) >= settings.max_concurrent_optimization_jobs:
+        raise APIError(
+            "OPTIMIZER_BUSY",
+            f"{len(_JOBS)} optimization run(s) already in progress. Wait for one to finish.",
+            429,
+        )
+
+    depot, orders, vehicles = await _load_inputs(db, req)
+    run = OptimizationRun(
+        status=OptimizationStatus.PROCESSING,
+        objective=req.objective,
+        depot_id=req.depot_id,
+        orders_count=len(orders),
+        vehicles_count=len(vehicles),
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+
+    budget = settings.solver_async_time_limit_seconds
+    # Keep a reference: a bare create_task can be garbage-collected mid-flight.
+    task = asyncio.create_task(_run_job(run.id, req, budget))
+    _JOBS.add(task)
+    task.add_done_callback(_JOBS.discard)
+
+    await manager.broadcast(
+        "OPTIMIZATION_STARTED",
+        {
+            "run_id": run.id,
+            "orders_count": run.orders_count,
+            "vehicles_count": run.vehicles_count,
+            "objective": req.objective.value,
+            "budget_seconds": budget,
+        },
+    )
+    return run
+
+
+async def _run_job(run_id: int, req: OptimizationRequest, budget: int) -> None:
+    """Background solve. Owns its own DB session — the request's session is gone."""
+    heartbeat = asyncio.create_task(_heartbeat(run_id, budget))
+    try:
+        async with AsyncSessionLocal() as db:
+            run = (
+                await db.execute(select(OptimizationRun).where(OptimizationRun.id == run_id))
+            ).scalar_one()
+            try:
+                depot, orders, vehicles = await _load_inputs(db, req)
+                run = await _execute_run(db, run, req, depot, orders, vehicles, budget)
+            except Exception as exc:  # noqa: BLE001
+                # _execute_run already marks FAILED and re-raises; catch so the
+                # task never dies silently, and always tell the clients.
+                logger.exception("optimization run %s failed", run_id)
+                await manager.broadcast(
+                    "OPTIMIZATION_FAILED", {"run_id": run_id, "error": str(exc)[:200]}
+                )
+                return
+
+            payload = run.result_payload or {}
+            await manager.broadcast(
+                "OPTIMIZATION_COMPLETED",
+                {
+                    "run_id": run.id,
+                    "status": run.status.value,
+                    "improvement_percentage": run.improvement_percentage,
+                    "total_distance_before": run.total_distance_before,
+                    "total_distance_after": run.total_distance_after,
+                    "assigned_count": run.assigned_count,
+                    "unassigned_count": run.unassigned_count,
+                    "execution_time_ms": run.execution_time_ms,
+                    "plan_source": payload.get("plan_source"),
+                },
+            )
+    finally:
+        heartbeat.cancel()
+
+
+async def _heartbeat(run_id: int, budget: int) -> None:
+    """Emit progress while the solver works, so the UI can show real motion."""
+    elapsed = 0
+    try:
+        while True:
+            await asyncio.sleep(_HEARTBEAT_SECONDS)
+            elapsed += _HEARTBEAT_SECONDS
+            await manager.broadcast(
+                "OPTIMIZATION_PROGRESS",
+                {
+                    "run_id": run_id,
+                    "elapsed_seconds": elapsed,
+                    "budget_seconds": budget,
+                    # The solve is a fixed wall-clock budget, so elapsed/budget is
+                    # an honest completion fraction rather than a guess.
+                    "progress_pct": min(99, round(elapsed / max(1, budget) * 100)),
+                },
+            )
+    except asyncio.CancelledError:  # pragma: no cover - normal shutdown path
+        pass
 
 
 async def get_run(db: AsyncSession, run_id: int) -> OptimizationRun:

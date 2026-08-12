@@ -69,7 +69,11 @@ def solve_vrp(
     orders: list[OrderNode],
     vehicles: list[VehicleInput],
     objective: OptimizationObjective = OptimizationObjective.BALANCED,
+    time_limit_seconds: int | None = None,
 ) -> SolveResult:
+    """Solve the VRP. ``time_limit_seconds`` overrides the configured budget —
+    a run detached from an HTTP request can afford far more search than one a
+    client is waiting on."""
     if not orders:
         return SolveResult(routes=[], unassigned=[], objective_value=0.0, matrix_source="none")
     if not vehicles:
@@ -164,7 +168,8 @@ def solve_vrp(
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC,
     )
     params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-    params.time_limit.FromSeconds(max(1, settings.solver_time_limit_seconds))
+    budget = time_limit_seconds if time_limit_seconds is not None else settings.solver_time_limit_seconds
+    params.time_limit.FromSeconds(max(1, int(budget)))
 
     solution = routing.SolveWithParameters(params)
 

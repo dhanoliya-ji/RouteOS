@@ -5,6 +5,7 @@ import { PageHeader } from "../components/Layout";
 import { EmptyState, Skeleton, StatusBadge } from "../components/ui";
 import { depotApi, optimizationApi, orderApi, vehicleApi } from "../api/endpoints";
 import { useToast } from "../stores/toast";
+import { useFleetSocket } from "../hooks/useFleetSocket";
 import { NCR_CENTER, ROUTE_COLORS, coloredDot, depotIcon } from "../utils/map";
 import type { Objective, OptimizationRun } from "../types";
 
@@ -14,6 +15,8 @@ export default function RoutePlanner() {
   const [selOrders, setSelOrders] = useState<Set<number>>(new Set());
   const [selVehicles, setSelVehicles] = useState<Set<number>>(new Set());
   const [run, setRun] = useState<OptimizationRun | null>(null);
+  const [jobId, setJobId] = useState<number | null>(null);
+  const [progress, setProgress] = useState<{ elapsed: number; budget: number } | null>(null);
 
   const depots = useQuery({ queryKey: ["depots"], queryFn: depotApi.list });
   const depot = depots.data?.[0];
@@ -23,19 +26,45 @@ export default function RoutePlanner() {
   });
   const vehicles = useQuery({ queryKey: ["planner-vehicles"], queryFn: () => vehicleApi.list({ status: "AVAILABLE" }) });
 
+  // The solve runs as a background job, so the request returns immediately with
+  // a PROCESSING run. Poll it until it settles; progress arrives over the fleet
+  // WebSocket meanwhile. This is what lets the solver use a minutes-long budget
+  // instead of whatever an HTTP request will tolerate.
   const runMut = useMutation({
-    mutationFn: () =>
-      optimizationApi.run({
+    mutationFn: async () => {
+      const queued = await optimizationApi.startJob({
         depot_id: depot!.id,
         order_ids: [...selOrders],
         vehicle_ids: [...selVehicles],
         objective,
-      }),
+      });
+      setJobId(queued.id);
+      setProgress({ elapsed: 0, budget: 0 });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const latest = await optimizationApi.get(queued.id);
+        if (latest.status === "COMPLETED") return latest;
+        if (latest.status === "FAILED") {
+          throw new Error(latest.error_message || "Optimization failed");
+        }
+      }
+    },
     onSuccess: (r) => {
       setRun(r);
+      setJobId(null);
       push(`Optimization complete in ${r.execution_time_ms} ms`, "success");
     },
-    onError: (e: any) => push(e.message, "error"),
+    onError: (e: any) => {
+      setJobId(null);
+      push(e.message, "error");
+    },
+  });
+
+  // Progress heartbeats for the run currently being solved.
+  useFleetSocket((e) => {
+    if (e.type === "OPTIMIZATION_PROGRESS" && e.data?.run_id === jobId) {
+      setProgress({ elapsed: e.data.elapsed_seconds, budget: e.data.budget_seconds });
+    }
   });
 
   const acceptMut = useMutation({
@@ -163,7 +192,33 @@ export default function RoutePlanner() {
           </div>
 
           <div className="flex-1 p-4">
-            {runMut.isPending && <Skeleton className="h-40" />}
+            {runMut.isPending && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-ink-500">
+                  <span>Solving…</span>
+                  {progress && progress.budget > 0 && (
+                    <span className="tabular-nums">
+                      {progress.elapsed}s / up to {progress.budget}s
+                    </span>
+                  )}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
+                  <div
+                    className="h-full rounded-full bg-brand-600 transition-all duration-500"
+                    style={{
+                      width: progress?.budget
+                        ? `${Math.min(99, (progress.elapsed / progress.budget) * 100)}%`
+                        : "8%",
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] leading-relaxed text-ink-400">
+                  The solve runs in the background, so it is not limited by how long a request can
+                  stay open. It stops early once the search stops improving.
+                </p>
+                <Skeleton className="h-28" />
+              </div>
+            )}
             {!run && !runMut.isPending && <EmptyState title="No plan yet" hint="Select orders + vehicles and optimize." />}
             {run && comp && (
               <div className="space-y-3">

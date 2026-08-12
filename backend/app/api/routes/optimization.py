@@ -31,6 +31,19 @@ async def run_optimization(
     return run
 
 
+@router.post("/jobs", response_model=OptimizationRunOut, status_code=202)
+async def start_optimization(
+    req: OptimizationRequest, db: AsyncSession = Depends(get_db), _=Depends(_dispatch)
+):
+    """Queue an optimization and return the PROCESSING run immediately.
+
+    The solve happens in the background, so its time budget is not capped by how
+    long a client can hold an HTTP connection open. Poll ``GET /runs/{id}`` or
+    subscribe to the ``OPTIMIZATION_*`` WebSocket events for progress.
+    """
+    return await optimization_service.start_optimization_job(db, req)
+
+
 @router.get("/runs", response_model=list[OptimizationRunOut])
 async def list_runs(db: AsyncSession = Depends(get_db), _=Depends(_dispatch)):
     return await optimization_service.list_runs(db)

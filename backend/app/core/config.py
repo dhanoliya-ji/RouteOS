@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     road_distance_factor: float = 1.25
     average_speed_kmh: float = 30.0
     solver_time_limit_seconds: int = 15
+    # Budget for background (job) runs. These are not bound to an HTTP request,
+    # so the solver can search far longer — which is what lets a CPU-starved
+    # instance still reach a plan that beats the greedy baseline.
+    solver_async_time_limit_seconds: int = 180
+    # Concurrent background solves allowed. Each pins a CPU for minutes, so this
+    # protects a small instance from being swamped by repeated requests.
+    max_concurrent_optimization_jobs: int = 2
     # OR-Tools FirstSolutionStrategy name. The starting solution dominates the
     # result whenever the local search gets few iterations (small CPU budgets),
     # so this is worth tuning per deployment.
