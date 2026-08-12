@@ -48,6 +48,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    # Set on managed hosts, where the frontend's exact origin isn't known at
+    # deploy time (see Settings.backend_cors_origin_regex). Empty locally.
+    allow_origin_regex=settings.backend_cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

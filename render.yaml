@@ -47,13 +47,12 @@ services:
           property: connectionString
       - key: SECRET_KEY
         generateValue: true        # Render generates a strong secret
-      - key: BACKEND_CORS_ORIGINS
-        # Resolves to the frontend's bare hostname; the backend expands a
-        # scheme-less entry to https://<host> (see core/config.cors_origins).
-        fromService:
-          type: web
-          name: routeos-frontend
-          property: host
+      - key: BACKEND_CORS_ORIGIN_REGEX
+        # The frontend already references this service, so this side CANNOT
+        # reference the frontend back — Render rejects circular blueprint
+        # dependencies. Match the deployed frontend by pattern instead; this
+        # stays correct whatever suffix Render assigns to the service name.
+        value: ^https://[a-z0-9-]+\.onrender\.com$
       - key: ENVIRONMENT
         value: production
 

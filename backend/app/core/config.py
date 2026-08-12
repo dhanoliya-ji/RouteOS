@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     # JSON-decode a list[str] env value before validators run). Use `cors_origins`.
     backend_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Optional regex of allowed origins, used instead of naming the frontend
+    # explicitly. A blueprint cannot have the backend reference the frontend
+    # while the frontend references the backend — managed hosts reject the
+    # circular dependency — so on those platforms the deployed frontend is
+    # matched by pattern instead. Starlette echoes the matched origin back
+    # (never a wildcard), so credentialed requests stay spec-compliant.
+    backend_cors_origin_regex: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         """Allowed origins, normalised to full origins.
