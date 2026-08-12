@@ -3,18 +3,25 @@
  *
  * Three inputs are supported, in priority order:
  *   1. VITE_API_BASE_URL / VITE_WS_BASE_URL — explicit, full origins.
- *   2. VITE_API_HOST — a bare hostname (e.g. "routeos-backend.onrender.com").
- *      Managed hosts like Render can inject the backend's hostname into the
- *      frontend build automatically, but only without a scheme — so we add it.
+ *   2. VITE_API_HOST — the backend host, injected by a managed host so the
+ *      blueprint keeps working whatever name the platform assigns.
  *   3. localhost defaults for `docker compose` / `npm run dev`.
  */
 const apiHost = import.meta.env.VITE_API_HOST?.trim();
 
 function fromHost(host: string, secure: "https" | "wss"): string {
-  // A bare host is always remote (managed hosts terminate TLS), so use the
-  // secure scheme. Tolerate a host that already carries a scheme.
+  // Tolerate a value that already carries a scheme.
   if (/^[a-z]+:\/\//i.test(host)) return host;
-  return `${secure}://${host}`;
+
+  // Render's `fromService.property: host` resolves to the peer's *service name*
+  // ("routeos-backend-h5x6"), which is its internal DNS name — not a public
+  // FQDN. This bundle runs in a browser, so it needs the public origin. A
+  // dot-less value is therefore a Render service name; expand it. Anything
+  // already containing a dot is treated as a real hostname and left alone.
+  const fqdn = host.includes(".") ? host : `${host}.onrender.com`;
+
+  // Remote hosts terminate TLS, so always use the secure scheme.
+  return `${secure}://${fqdn}`;
 }
 
 const API_BASE =

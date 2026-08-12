@@ -65,8 +65,12 @@ services:
     staticPublishPath: ./dist
     envVars:
       - key: VITE_API_HOST
-        # Bare backend hostname; the client derives https:// and wss:// from it
-        # (see src/api/client.ts). This is what makes the blueprint name-proof.
+        # NOTE: this resolves to the backend's *service name* (e.g.
+        # "routeos-backend-h5x6"), which is Render's internal DNS name — not a
+        # public FQDN. The client expands a dot-less value to
+        # <name>.onrender.com to get the browser-reachable origin, and derives
+        # https:// and wss:// from it (see src/api/client.ts). That is what
+        # keeps this blueprint working whatever suffix Render assigns.
         fromService:
           type: web
           name: routeos-backend
