@@ -237,17 +237,14 @@ measured on the seeded 150-order dataset:
 Concurrent solves are capped (`MAX_CONCURRENT_OPTIMIZATION_JOBS`, default 2) — each one pins a CPU
 for minutes, so an uncapped public endpoint would starve both the solver and the API.
 
-What this means for the live demo, measured on it directly:
+Background jobs are what make the hosted demo work despite that. With a 240s budget, the live
+instance now solves **all 150 orders to 672.38 km vs the baseline's 723.33 km — +7.0% on 6 vehicles
+instead of 7** (`plan_source: solver`), the same plan a local 15s run finds. Before the solve was
+moved off the request path it returned −3.3% there and fell back to the baseline.
 
-- **50 orders** → the solver wins, typically on **fleet size** rather than distance
-  (a real run: 4 vehicles vs the baseline's 5, **−20%**, at 397.63 km vs 399.33 km).
-- **All 150 orders** → the solver runs out of search budget, and the app **dispatches the baseline
-  and says so** instead of shipping a worse plan.
-
-The size of the win varies with which orders you select — the table above is one fixed subset, not
-a promise. The reliable claim is the guarantee: **the dispatched plan is never worse than routing
-by hand.** For the full-strength result (+7% and one fewer vehicle on all 150 orders), run it
-locally, where the solver gets a whole core.
+The size of the win still varies with which orders you select — the table above is one fixed
+subset, not a promise. The guarantee that always holds is the portfolio rule: **the dispatched plan
+is never worse than routing by hand**, and the UI says which heuristic produced it.
 
 ### The simulation engine
 
