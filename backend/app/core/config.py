@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     # so the solver can search far longer — which is what lets a CPU-starved
     # instance still reach a plan that beats the greedy baseline.
     solver_async_time_limit_seconds: int = 180
+    # Background budget is scaled to the order count between these bounds, so a
+    # small run does not sit waiting after its search has already converged.
+    solver_min_async_time_limit_seconds: int = 30
+    solver_seconds_per_order: float = 1.6
     # Concurrent background solves allowed. Each pins a CPU for minutes, so this
     # protects a small instance from being swamped by repeated requests.
     max_concurrent_optimization_jobs: int = 2

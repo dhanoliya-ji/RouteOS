@@ -276,6 +276,22 @@ async def _execute_run(
     return run
 
 
+def _budget_for(order_count: int) -> int:
+    """Scale the solve budget to the problem size.
+
+    Search difficulty grows with the number of stops, so spending the full
+    budget on a small instance just makes the user wait after the search has
+    already converged: 50 orders settles in a few CPU-seconds while 150 needs
+    every second it can get. Bounded below so tiny runs still get a real search,
+    and above by the configured ceiling.
+    """
+    scaled = int(order_count * settings.solver_seconds_per_order)
+    return max(
+        settings.solver_min_async_time_limit_seconds,
+        min(settings.solver_async_time_limit_seconds, scaled),
+    )
+
+
 async def start_optimization_job(
     db: AsyncSession, req: OptimizationRequest
 ) -> OptimizationRun:
@@ -307,7 +323,7 @@ async def start_optimization_job(
     await db.commit()
     await db.refresh(run)
 
-    budget = settings.solver_async_time_limit_seconds
+    budget = _budget_for(len(orders))
     # Keep a reference: a bare create_task can be garbage-collected mid-flight.
     task = asyncio.create_task(_run_job(run.id, req, budget))
     _JOBS.add(task)
