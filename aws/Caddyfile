@@ -1,0 +1,24 @@
+# Single-origin reverse proxy for RouteOS.
+#
+# Everything (SPA, REST, WebSocket) is served from ONE hostname, so there is no
+# CORS to configure and no mixed-content problem: the page is https, so the
+# socket is wss on the same host. Caddy obtains and renews a Let's Encrypt
+# certificate automatically for {$SITE_ADDRESS}.
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# API, docs and the live fleet socket -> FastAPI
+	@backend path /api/* /ws/* /health /docs* /redoc* /openapi.json /metrics
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else -> the built React app (nginx serves it, SPA fallback inside)
+	handle {
+		reverse_proxy frontend:80
+	}
+}

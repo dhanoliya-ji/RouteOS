@@ -1,0 +1,111 @@
+# RouteOS on a single EC2 instance (AWS free tier).
+#
+# Differences from the dev compose file:
+#   * Postgres and Redis publish NO host ports - they are reachable only on the
+#     private compose network. Nothing but 22/80/443 is exposed on the instance.
+#   * Caddy terminates TLS and serves the SPA and the API from one hostname, so
+#     there is no CORS config and the WebSocket is same-origin wss://.
+#   * Memory limits, because t3.micro has 1 GB of RAM shared by everything.
+#
+# Usage on the instance:
+#   export SITE_ADDRESS=routeos.<your-ip-dashed>.sslip.io
+#   export ACME_EMAIL=you@example.com
+#   docker compose -f aws/docker-compose.aws.yml up -d --build
+name: routeos
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-routeos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong password in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-routeos}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-routeos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Cache only: cap memory and evict rather than OOM the box.
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-routeos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-routeos}
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_CORS_ORIGINS: https://${SITE_ADDRESS}
+      ENVIRONMENT: production
+      # t3.micro is 2 burstable vCPUs. One solve at a time, and a budget that
+      # does not drain CPU credits on every run.
+      SOLVER_ASYNC_TIME_LIMIT_SECONDS: "120"
+      MAX_CONCURRENT_OPTIMIZATION_JOBS: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 420M
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # Same origin as the API, so no CORS and wss:// just works.
+        VITE_API_BASE_URL: https://${SITE_ADDRESS}
+        VITE_WS_BASE_URL: wss://${SITE_ADDRESS}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS, e.g. routeos.13-51-2-9.sslip.io}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # certificates - persist or you will hit LE rate limits
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

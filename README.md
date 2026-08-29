@@ -465,6 +465,22 @@ from the injected backend host.
 
 Step-by-step guide, including Railway and Fly.io notes: **[DEPLOY.md](DEPLOY.md)**.
 
+### On AWS (free tier)
+
+A single EC2 `t3.micro` runs the whole stack with Docker Compose behind Caddy, which supplies
+free auto-renewing HTTPS. Postgres/PostGIS and Redis stay on the private Docker network with no
+published ports, so the instance exposes only 22, 80 and 443. No load balancer and no NAT
+Gateway, because neither is free-tier eligible.
+
+```bash
+export SITE_ADDRESS=routeos.<your-ip-with-dashes>.sslip.io
+docker compose -f aws/docker-compose.aws.yml up -d --build
+```
+
+Full walkthrough from creating the AWS account to a live URL, with cost guardrails and the
+production architecture it would grow into: **[aws/AWS-DEPLOY.md](aws/AWS-DEPLOY.md)**.
+
+
 > Free-tier web services sleep after ~15 min idle and cold-start in ~50s. Give the first request
 > a moment.
 
