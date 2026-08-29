@@ -85,7 +85,8 @@ be restricted by any policy, so lock it away and stop using it.
 ## 4. Choose a region
 
 Use the region selector at the top right and pick the one nearest your users —
-**ap-south-1 (Mumbai)** for India. Region affects latency, price, and which services are
+**ap-south-1 (Mumbai)** for India, though any region works. Whatever you choose, **stay in it
+for every step**: the instance, the key pair and the security group are all region-scoped. Region affects latency, price, and which services are
 available. Free tier is per account, not per region, but **resources are region-scoped**: an
 instance you created in Mumbai is invisible if the console is set to N. Virginia. This causes a
 lot of "where did my instance go" confusion.
@@ -98,7 +99,7 @@ lot of "where did my instance go" confusion.
 |---|---|---|
 | Name | `routeos` | |
 | AMI | **Ubuntu Server 24.04 LTS**, 64-bit x86 | Must be labelled *Free tier eligible*. |
-| Instance type | **t3.micro** (or `t2.micro` if that is the one your account marks free) | 2 burstable vCPUs, 1 GB RAM. |
+| Instance type | **t3.micro** | 2 burstable vCPUs, 1 GB RAM. Older regions also offer `t2.micro`; newer ones (`eu-north-1`, for example) have **no t2 family at all**, so t3.micro is the one to pick. |
 | Key pair | *Create new key pair* → name `routeos-key` → **RSA** → **.pem** → Download | This is the **only** copy. Lose it and you lose SSH access. |
 | Network | Default VPC, **Auto-assign public IP = Enable** | Public subnet, so no NAT Gateway is needed. |
 | Security group | Create new — rules below | |
