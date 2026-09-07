@@ -49,15 +49,6 @@ export function KpiCard({
   );
 }
 
-export function Spinner({ label }: { label?: string }) {
-  return (
-    <div className="flex items-center gap-2 text-sm text-ink-500">
-      <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink-300 border-t-brand-600" />
-      {label}
-    </div>
-  );
-}
-
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-ink-300 bg-white/50 py-12 text-center">
