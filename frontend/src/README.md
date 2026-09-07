@@ -142,14 +142,14 @@ that navigates away must survive that navigation.
 
 ---
 
-## `index.css` — the design system in seven classes
+## `index.css` — the design system in six classes
 
 Tailwind's three layers, then component classes built with `@apply`:
 
 ```
    .card      white panel, rounded, bordered
    .btn       shared button base (padding, focus, disabled styling)
-   .btn-primary / .btn-ghost / .btn-danger
+   .btn-primary / .btn-ghost
    .input     text input / select
    .label     small form label
    .badge     pill, used by StatusBadge
