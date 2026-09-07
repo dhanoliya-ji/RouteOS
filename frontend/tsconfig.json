@@ -1,21 +1,55 @@
+// TypeScript configuration.
+//
+// Comments are legal here: tsconfig.json is parsed as JSONC, not strict JSON.
+//
+// Note this project has no test suite, so `npm run lint` (which is just
+// `tsc --noEmit` against these options) is the entire automated safety net.
 {
   "compilerOptions": {
+    // Modern output target — Vite handles any further downlevelling for the
+    // browsers it builds for.
     "target": "ES2021",
     "useDefineForClassFields": true,
+    // DOM and DOM.Iterable are what make document, fetch, WebSocket and
+    // iterating a NodeList type-check.
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "module": "ESNext",
+    // Skip type-checking inside node_modules. Keeps the check fast and stops a
+    // third-party library's own type errors failing our build.
     "skipLibCheck": true,
+    // Resolve imports the way a bundler does, so extensionless paths and
+    // package "exports" maps work as Vite will actually resolve them.
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    // Every file must be compilable on its own, which is what lets Vite
+    // transpile file-by-file without whole-program knowledge.
     "isolatedModules": true,
     "moduleDetection": "force",
+    // TypeScript only CHECKS; Vite does the emitting. This is why the lint
+    // script is `tsc --noEmit` and produces no output of its own.
     "noEmit": true,
+    // The modern JSX transform: no `import React` needed in a .tsx file.
     "jsx": "react-jsx",
+
+    // The setting that does the most work here — null checks, implicit any,
+    // strict function types. It is why the `| null` annotations in
+    // src/types/index.ts force a check at each use site.
     "strict": true,
+
+    // Both deliberately OFF. An unused local or parameter is a lint concern,
+    // and with this config also the build gate — turning them on would fail
+    // `npm run build` over a temporarily unused variable while iterating.
+    // ESLint would be the right home for these.
     "noUnusedLocals": false,
     "noUnusedParameters": false,
+
+    // ON, and worth having: LiveOps switches over thirteen WebSocket event
+    // types, where an accidentally missing `break` would silently run the next
+    // handler too.
     "noFallthroughCasesInSwitch": true
   },
+  // Only src. Config files at the root (vite.config.ts, tailwind.config.js) are
+  // not type-checked by this project.
   "include": ["src"]
 }

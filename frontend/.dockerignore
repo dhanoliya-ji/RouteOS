@@ -1,2 +1,8 @@
+# Kept out of the build context.
+#
+# node_modules would be both large and wrong — the build stage runs npm install
+# on alpine, and host-built native modules may target a different platform.
 node_modules
+# dist is produced inside the image; copying a local build in would risk
+# shipping stale assets.
 dist

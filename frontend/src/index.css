@@ -1,7 +1,13 @@
+/* Tailwind's three layers, in required order: base resets, then component
+   classes, then utilities — so a utility can always override a component
+   class, which is what makes `className="input max-w-xs"` work. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Light only. Tells the browser to render native controls (scrollbars,
+   form widgets) in light mode rather than following the OS setting, which
+   would clash with a UI that has no dark palette. */
 :root {
   color-scheme: light;
 }
@@ -10,6 +16,14 @@ body {
   @apply bg-ink-50 text-ink-900 font-sans antialiased;
 }
 
+/* Leaflet needs its container to have an explicit height — it measures the
+   element to decide which tiles to load, and a height of 0 renders a blank
+   map with no error. Combined with the fixed-height shell in Layout.tsx,
+   this is what gives the map screens their size.
+
+   The grey background shows while tiles are still loading.
+
+   (The marker IMAGES are repaired separately, in src/utils/map.ts.) */
 /* Leaflet marker fix when bundling */
 .leaflet-container {
   width: 100%;
@@ -17,10 +31,21 @@ body {
   background: #eaeef3;
 }
 
+/* Component classes.
+
+   These exist despite Tailwind favouring utilities, because each is a long
+   utility string repeated dozens of times — .input appears 37 times and
+   .label 58. Inlining them would mean 58 copies of the same nine utilities,
+   and a restyle would become a find-and-replace.
+
+   Declared inside @layer components so plain utilities still win over them
+   regardless of source order. */
 @layer components {
   .card {
     @apply bg-white rounded-xl border border-ink-200 shadow-sm;
   }
+  /* The shared button base. .btn-primary and .btn-ghost both @apply it, so
+     padding, focus and disabled behaviour are defined exactly once. */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
