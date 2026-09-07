@@ -1,10 +1,10 @@
 # `backend/tests/` — the test suite
 
-108 tests in two tiers.
+119 tests in two tiers.
 
 ```bash
 cd backend
-pytest                                    # 108 with a database, 58 without
+pytest                                    # 119 with a database, 58 without
 pytest -q                                 # quiet
 pytest tests/test_orders_api.py -v        # one file
 pytest -k permission                      # one topic
@@ -19,7 +19,7 @@ pytest --durations=10                     # find the slow ones
 security primitives and the permission matrix. Nothing to install, nothing to
 start.
 
-**Tier 2 — a real PostGIS database (50 tests, skipped without one).** The API
+**Tier 2 — a real PostGIS database (61 tests, skipped without one).** The API
 and business-rule tests.
 
 Why Tier 2 needs real Postgres rather than SQLite: the app stores `Geography`
@@ -29,7 +29,7 @@ tests that pass while proving little. Instead these skip cleanly, so `pytest`
 still works on a machine with no Docker:
 
 ```
-58 passed, 50 skipped
+58 passed, 61 skipped
 ```
 
 Start a database and they run:
@@ -57,6 +57,7 @@ running. Point elsewhere with `TEST_DATABASE_URL`.
 | `test_permissions.py` | 18 | 1 | The role ladder, and a role × endpoint matrix |
 | `test_orders_api.py` | 28 | 2 | Order CRUD, status rules, paging, PostGIS search |
 | `test_optimization_api.py` | 22 | 2 | Solve → review → accept → discard |
+| `test_dashboard_api.py` | 11 | 2 | The on-time rate, and the KPI tiles |
 
 ### Still not covered
 
@@ -67,7 +68,7 @@ Worth knowing before trusting a green run:
 - **The WebSocket.** No test connects to `/ws/fleet` or asserts an event payload.
 - **Vehicle, depot and route endpoints.** Only orders got the full CRUD
   treatment; the others are covered for permissions only.
-- **Analytics and dashboard.** The aggregation SQL is untested.
+- **Analytics.** The chart aggregations are untested. (The dashboard summary now is.)
 - **Frontend pages.** The frontend has its own suite (`npm test`, 83 tests)
   covering the API client, stores, hooks and primitives — but no page.
 
@@ -141,7 +142,7 @@ objective happened to agree with it.
 
 ---
 
-## Two tests found real bugs
+## Three tests found real bugs
 
 Both are fixed, and both are the argument for having written any of this.
 
@@ -155,6 +156,12 @@ The 422 was never sent and the field-level detail was lost. Fixed with
 that status was the only guard, so a double-click dispatched the fleet twice —
 duplicate routes, orders re-assigned, vehicle loads overwritten. Fixed by
 guarding on the routes' own `optimization_run_id`, which needed no migration.
+
+**The on-time rate was ~100% by construction.** It counted every
+DELIVERY_COMPLETED event over delivered orders — the same quantity twice — and a
+clamp hid the rest. Now it compares each stop's `actual_arrival` against its
+order's `delivery_window_end`. Confirmed as a real regression test by restoring
+the old code: 5 of the 11 new tests fail against it.
 
 ---
 

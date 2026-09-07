@@ -126,16 +126,18 @@ few seconds to appear.
 The frontend adds its own 10-second `staleTime`, so worst case is a short lag.
 Mutations invalidate their query keys, which bypasses it.
 
-### The on-time delivery rate is always ~100%
+### The on-time delivery rate looks wrong
 
-**A known defect, not a coincidence.** The query counts every
-`DELIVERY_COMPLETED` event and divides by delivered orders — and the engine
-writes one such event per delivery, so the ratio is ~100% by construction. It
-is currently a completion rate wearing the wrong label.
+It measures **promises kept**, not deliveries made: of the stops that had a
+`delivery_window_end`, the fraction whose `actual_arrival` met it.
 
-Measuring the real thing means comparing `route_stops.actual_arrival` against
-`orders.delivery_window_end`. Both are stored, so the data is there. See
-`backend/app/services/README.md`.
+So it will read 100% on a fresh system, and stays at 100% no matter how much you
+deliver — until something arrives past a window. Orders seeded without a
+delivery window (about 40% of them) never affect it at all, and a stop that has
+not been delivered yet is excluded rather than counted late.
+
+If you want to see it move, apply `severe` traffic or a `breakdown` to a route
+whose remaining orders have tight windows, then let the simulation run.
 
 ---
 

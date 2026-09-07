@@ -283,22 +283,20 @@ and the conditional count in one pass.
 
 ## Two things to be aware of
 
-**1. `on_time_delivery_rate` does not currently measure on-time-ness.**
+**1. `on_time_delivery_rate` measures promises kept, not deliveries made.**
 
-`dashboard_service.get_summary()` comments the metric as *"delivered stops whose
-actual arrival <= order window end"*, but the query counts **every**
-`DELIVERY_COMPLETED` event and divides by delivered orders:
+It joins each completed stop to its order and compares `actual_arrival` against
+`delivery_window_end` — which is why `route_stops` keeps the actual arrival
+beside the solver's estimate.
 
-```python
-on_time = count(DeliveryEvent where event_type == "DELIVERY_COMPLETED")
-on_time_rate = on_time / delivered_total * 100
-```
+Two exclusions are deliberate: a stop with no `actual_arrival` has not been
+delivered yet, and an order with no window was never promised anything. So the
+figure answers *"of what we promised, how much did we hit"* rather than *"how
+much did we deliver"*.
 
-Since an event is written for every delivery, that ratio is ~100% by
-construction, and the `min(..., 100.0)` clamp hides the rest. Measuring the
-stated intent means comparing `route_stops.actual_arrival` against
-`orders.delivery_window_end` — both of which are stored, so the data is there.
-Flagged here rather than changed in a documentation pass.
+It used to do the latter by accident — counting every `DELIVERY_COMPLETED`
+event over delivered orders, which is the same quantity twice and so reported
+~100% regardless. `tests/test_dashboard_api.py` now pins the real behaviour.
 
 **2. `distance_per_delivery_km` reads oddly but is correct.**
 
