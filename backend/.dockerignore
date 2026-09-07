@@ -1,5 +1,23 @@
+# Files kept OUT of the Docker build context.
+#
+# Everything here would either bloat the image or actively break it: compiled
+# artefacts from the host may target a different architecture than the
+# python:3.12-slim base.
+
+# Python bytecode — regenerated in the image, and host-built .pyc files can be
+# stale or architecture-specific.
 __pycache__
 *.pyc
+
+# A host virtualenv. Large, and its binaries are built for the host OS, so
+# copying it in would shadow the image's own site-packages with incompatible
+# ones.
 .venv
+
+# Test run caches — pure local state.
 .pytest_cache
+
+# The test suite is not shipped in the runtime image: it is not needed to serve
+# requests. Note the consequence — you cannot `docker compose exec backend
+# pytest`. Tests run on the host, or in a build stage that copies them in.
 tests
