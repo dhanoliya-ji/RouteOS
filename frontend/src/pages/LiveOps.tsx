@@ -127,7 +127,7 @@ export default function LiveOps() {
           <span className="flex items-center gap-2">
             <span className={`inline-block h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
             {connected ? "WebSocket connected" : "reconnecting…"}
-          </span> as any
+          </span>
         }
         actions={
           <div className="flex items-center gap-2">
