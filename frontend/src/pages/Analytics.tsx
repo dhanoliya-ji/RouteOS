@@ -1,3 +1,7 @@
+// Fleet performance and optimization impact - the reporting screen.
+//
+// Distinct from the Dashboard: this answers "how have we done over a period"
+// rather than "what is happening now", so nothing here polls.
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PageHeader } from "../components/Layout";
@@ -16,6 +20,8 @@ export default function Analytics() {
       <PageHeader title="Analytics" subtitle="Fleet performance & optimization impact" />
       <div className="space-y-5 p-6">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {/* Tests the data rather than isLoading, so a refetch keeps the
+              current numbers on screen instead of flashing back to skeletons. */}
           {!s ? (
             Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-20" />)
           ) : (

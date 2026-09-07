@@ -1,3 +1,5 @@
+// Routes and their stops. Read-only - routes are created by accepting a plan in
+// the Route Planner, never here.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "../components/Layout";
@@ -7,7 +9,16 @@ import type { Route } from "../types";
 
 export default function ActiveRoutes() {
   const [status, setStatus] = useState("");
+  // `status` is in the query key, so changing the filter is a different cache
+  // entry and refetches automatically - no effect watching it.
+  //
+  // `status || undefined` turns the "All" option's empty string into an omitted
+  // parameter, so the backend returns every status rather than matching "".
+  //
+  // Polls every 6s to follow progress_stop_index as the simulation advances.
   const routes = useQuery({ queryKey: ["routes", status], queryFn: () => routeApi.list(status || undefined), refetchInterval: 6000 });
+  // Which route's stop table is open. A single id rather than a Set, so
+  // expanding one row collapses any other - an accordion, not checkboxes.
   const [expanded, setExpanded] = useState<number | null>(null);
 
   return (
@@ -42,6 +53,8 @@ export default function ActiveRoutes() {
                   <span>{r.total_distance_km} km</span>
                   <span>{Math.round(r.estimated_duration_minutes)} min</span>
                   <span>{r.total_load_kg} kg</span>
+                  {/* `!= null`, not a truthiness test: a genuine 0% improvement
+                      should still display rather than vanish. */}
                   {r.optimization_score != null && <span className="text-green-600">−{r.optimization_score}%</span>}
                 </div>
               </div>
@@ -52,6 +65,10 @@ export default function ActiveRoutes() {
                       <tr><th className="py-1">#</th><th>Order</th><th>Dist from prev</th><th>ETA</th><th>Status</th></tr>
                     </thead>
                     <tbody>
+                      {/* Copied before sorting: sort() mutates in place, and
+                          reordering the array inside the query cache would be a
+                          side effect on shared state. The backend already returns
+                          them ordered, so this is belt-and-braces. */}
                       {[...r.stops].sort((a, b) => a.stop_sequence - b.stop_sequence).map((s) => (
                         <tr key={s.id} className="border-t border-ink-50">
                           <td className="py-1">{s.stop_sequence}</td>

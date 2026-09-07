@@ -1,9 +1,16 @@
+// The solver run log: every optimization attempt with its measured saving.
+//
+// Read-only, and the audit trail behind the improvement figures shown
+// elsewhere - each row's "before" is the greedy baseline the backend computes on
+// every run, so the percentages are measurements rather than claims.
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "../components/Layout";
 import { EmptyState, Skeleton, StatusBadge } from "../components/ui";
 import { optimizationApi } from "../api/endpoints";
 
 export default function OptimizationHistory() {
+  // No polling. A run started from the Route Planner is watched there; this
+  // screen is for looking back.
   const runs = useQuery({ queryKey: ["opt-runs"], queryFn: optimizationApi.runs });
 
   return (
@@ -38,6 +45,9 @@ export default function OptimizationHistory() {
                     <td className="px-4 py-2.5">{r.orders_count}</td>
                     <td className="px-4 py-2.5">{r.assigned_count}/{r.orders_count}</td>
                     <td className="px-4 py-2.5">
+                      {/* Em dash when absent: a PROCESSING or FAILED run has no
+                          comparison, and `0 -> 0 km` would read as a real
+                          measurement. */}
                       {r.total_distance_before != null ? `${r.total_distance_before} → ${r.total_distance_after} km` : "—"}
                     </td>
                     <td className="px-4 py-2.5 text-green-600">{r.improvement_percentage != null ? `${r.improvement_percentage}%` : "—"}</td>

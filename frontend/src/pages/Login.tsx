@@ -1,8 +1,20 @@
+// The sign-in screen. The only page rendered outside the app shell, and the
+// only one reachable while signed out.
+//
+// Note it manages its own busy/error state with useState rather than a
+// mutation - reasonable here, because it drives the auth store rather than a
+// query, and the error is rendered inline rather than as a toast.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 import { ApiError } from "../api/client";
 
+// One-click fills for the seeded demo accounts.
+//
+// These credentials are already public - they are in the repo README and are
+// what backend/scripts/seed_data.py creates - so nothing is exposed here that
+// is not documented elsewhere. A real deployment overrides them via the DEMO_*
+// backend settings, at which point these buttons stop working and should go.
 const DEMO = [
   { role: "Dispatcher", email: "dispatcher@routeos.dev", password: "dispatch12345" },
   { role: "Admin", email: "admin@routeos.dev", password: "admin12345" },
@@ -18,15 +30,24 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
+    // Stop the browser navigating on submit; this is an SPA.
     e.preventDefault();
+    // Clear any previous failure before trying again.
     setError("");
     setBusy(true);
     try {
+      // Stores the token and loads the user; throws on bad credentials.
       await login(email, password);
+      // Straight to the dashboard. <Protected> lets it through now that the
+      // store has a user.
       navigate("/");
     } catch (err) {
+      // ApiError carries the backend's own wording ("Incorrect email or
+      // password"). Anything else - a network failure, a thrown string - gets a
+      // generic message rather than showing the user an internal error.
       setError(err instanceof ApiError ? err.message : "Login failed");
     } finally {
+      // finally, so the button is re-enabled on failure as well as success.
       setBusy(false);
     }
   };

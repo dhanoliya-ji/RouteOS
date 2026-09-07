@@ -1,3 +1,8 @@
+// The current user's profile. Entirely read-only - there is no endpoint to
+// change a name or password, so this screen displays and does not edit.
+//
+// Reads the auth store rather than calling /auth/me again: the user was already
+// loaded at startup.
 import { PageHeader } from "../components/Layout";
 import { useAuth } from "../stores/auth";
 
@@ -29,6 +34,8 @@ export default function Settings() {
   );
 }
 
+// A label/value row. Kept local rather than in components/ui.tsx because only
+// this screen uses it - see components/README.md on that rule.
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex justify-between border-b border-ink-100 py-1.5 last:border-0">
