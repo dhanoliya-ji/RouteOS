@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from datetime import datetime, time, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import cache_get_json, cache_set_json
 from app.models.enums import OrderStatus, RouteStatus, VehicleStatus
 from app.models.order import Order
-from app.models.route import Route
+from app.models.route import Route, RouteStop
 from app.models.telemetry import DeliveryEvent
 from app.models.vehicle import Vehicle
 
@@ -100,27 +100,50 @@ async def get_summary(db: AsyncSession, *, use_cache: bool = True) -> dict:
         db, select(func.count(Route.id)).where(Route.status == RouteStatus.ACTIVE)
     )
 
-    # On-time rate: delivered stops whose actual arrival <= order window end.
+    # On-time rate: of the deliveries that carried a promised window, the
+    # fraction that met it.
     #
-    # WARNING: the query below does NOT implement that description.
+    # Measured by joining each completed stop to its order and comparing the
+    # recorded arrival against the promised deadline — which is exactly why
+    # route_stops keeps `actual_arrival` beside the solver's
+    # `estimated_arrival`, and why the order keeps its window.
     #
-    # `on_time` counts every DELIVERY_COMPLETED event, and the engine writes one
-    # for *every* delivery regardless of timing — so the ratio is ~100% by
-    # construction and the min(..., 100.0) clamp hides the remainder. It is
-    # currently a delivery-completion rate, not an on-time rate.
+    # Two exclusions, both deliberate:
     #
-    # Measuring the stated intent means comparing route_stops.actual_arrival
-    # against orders.delivery_window_end. Both are stored, so the data is
-    # already there — see the note in app/services/README.md.
-    delivered_total = await _count(
-        db, select(func.count(Order.id)).where(Order.status == OrderStatus.DELIVERED)
+    #   * a stop with no actual_arrival has not been delivered yet, so it is
+    #     neither on time nor late — counting it either way would make the rate
+    #     drift as a simulation runs;
+    #   * an order with no delivery_window_end was never promised anything, so
+    #     it cannot be late. Including those in the denominator would inflate
+    #     the rate towards 100% purely by adding unconstrained work.
+    #
+    # So this answers "of what we promised, how much did we hit" rather than
+    # "how much did we deliver".
+    #
+    # One query rather than two: a conditional SUM alongside the COUNT means
+    # both figures describe exactly the same set of rows.
+    on_time_expr = case(
+        (RouteStop.actual_arrival <= Order.delivery_window_end, 1), else_=0
     )
-    on_time = await _count(
-        db,
-        select(func.count(DeliveryEvent.id)).where(DeliveryEvent.event_type == "DELIVERY_COMPLETED"),
-    )
-    # Defaults to 100.0 with nothing delivered: an empty system is not failing.
-    on_time_rate = round((on_time / delivered_total * 100.0), 1) if delivered_total else 100.0
+    measurable, on_time = (
+        await db.execute(
+            select(
+                func.count(RouteStop.id),
+                func.coalesce(func.sum(on_time_expr), 0),
+            )
+            .join(Order, Order.id == RouteStop.order_id)
+            .where(
+                RouteStop.actual_arrival.is_not(None),
+                Order.delivery_window_end.is_not(None),
+            )
+        )
+    ).one()
+
+    # 100.0 when nothing measurable has happened: a system that has promised
+    # nothing has broken no promises. Note there is no clamp — on_time cannot
+    # exceed measurable by construction, and a clamp would only hide it if it
+    # ever did.
+    on_time_rate = round(int(on_time) / int(measurable) * 100.0, 1) if measurable else 100.0
 
     summary = {
         "total_orders": total_orders,
@@ -131,10 +154,7 @@ async def get_summary(db: AsyncSession, *, use_cache: bool = True) -> dict:
         "available_vehicles": available_vehicles,
         "total_distance_today_km": round(total_distance_today, 1),
         "active_routes": active_routes,
-        # Clamped because events can outnumber delivered orders — an order
-        # re-delivered after a failure has two events — which would otherwise
-        # produce a rate above 100%.
-        "on_time_delivery_rate": min(on_time_rate, 100.0),
+        "on_time_delivery_rate": on_time_rate,
     }
     # Written even when use_cache=False, so a forced refresh also repopulates
     # the cache for the next reader.
