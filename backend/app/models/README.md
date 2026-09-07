@@ -9,70 +9,113 @@ Nine tables across six files, plus `enums.py` holding the shared value sets.
 
 ## Entity-relationship diagram
 
+Nine tables. Relationship labels give the `ON DELETE` rule, because that is
+where the design decisions are — see [Delete rules](#delete-rules-are-chosen-not-default)
+below.
+
+```mermaid
+erDiagram
+    USERS {
+        int id PK
+        string email UK "the login identifier"
+        enum role "ADMIN / DISPATCHER / VIEWER"
+        bool is_active "the only way to revoke a live token"
+    }
+
+    DEPOTS {
+        int id PK
+        float latitude
+        float longitude
+        geography location "PostGIS, GiST-indexed"
+        time operating_start
+    }
+
+    VEHICLES {
+        int id PK
+        string registration_number UK
+        float capacity_kg "the solver's hard limit"
+        enum status "AVAILABLE is the only plannable one"
+        float current_latitude "no PostGIS column - rewritten every tick"
+        float max_route_distance_km
+    }
+
+    ORDERS {
+        int id PK
+        string order_number UK "server-assigned"
+        float weight_kg
+        enum priority "scales the solver's drop penalty"
+        enum status "PENDING is the only plannable one"
+        datetime delivery_window_start
+        geography location "PostGIS, GiST-indexed"
+    }
+
+    ROUTES {
+        int id PK
+        string route_code UK
+        enum status "PLANNED to ACTIVE to COMPLETED"
+        float total_distance_km "frozen at accept time"
+        float actual_duration_minutes "filled in by the simulation"
+        int progress_stop_index "denormalised cursor, -1 at depot"
+    }
+
+    ROUTE_STOPS {
+        int id PK
+        int stop_sequence "what makes a route ordered"
+        datetime estimated_arrival "the solver's promise"
+        datetime actual_arrival "what happened"
+        float distance_from_previous_km "per-leg, not cumulative"
+        enum status "PENDING vs COMPLETED gates re-optimization"
+    }
+
+    OPTIMIZATION_RUNS {
+        int id PK
+        enum status
+        float total_distance_before "the greedy baseline"
+        float total_distance_after "the dispatched plan"
+        jsonb result_payload "the whole plan, for accept/discard"
+        int depot_id "NOTE: plain int, not a FK"
+    }
+
+    VEHICLE_LOCATION_HISTORY {
+        int id PK
+        float latitude
+        float speed "average x traffic factor"
+        datetime recorded_at "sampled every ~300m, not per tick"
+    }
+
+    DELIVERY_EVENTS {
+        int id PK
+        string event_type
+        jsonb metadata "free-form; renamed in Python"
+        datetime created_at
+    }
+
+    DEPOTS ||--o{ VEHICLES : "CASCADE"
+    DEPOTS ||--o{ ORDERS : "CASCADE"
+    DEPOTS ||--o{ ROUTES : "CASCADE"
+
+    VEHICLES ||--o{ ROUTES : "SET NULL - history outlives the van"
+    OPTIMIZATION_RUNS ||--o{ ROUTES : "SET NULL - a live route needs no audit row"
+
+    ROUTES ||--|{ ROUTE_STOPS : "CASCADE"
+    ORDERS ||--o{ ROUTE_STOPS : "CASCADE"
+
+    VEHICLES ||--o{ VEHICLE_LOCATION_HISTORY : "CASCADE"
+    ROUTES ||--o{ VEHICLE_LOCATION_HISTORY : "SET NULL"
+
+    ORDERS ||--o{ DELIVERY_EVENTS : "CASCADE"
+    ROUTES ||--o{ DELIVERY_EVENTS : "CASCADE"
 ```
-   ┌───────────────┐
-   │     users     │   stands alone — nobody references it.
-   │───────────────│   Login and permissions only; an order is not
-   │ email  UNIQUE │   "owned" by a user in this model.
-   │ role          │
-   └───────────────┘
 
-   ┌────────────────────────────────────────────────────────────┐
-   │                          depots                            │
-   │  the hub every route starts and ends at                    │
-   │  latitude/longitude  +  location (PostGIS GEOGRAPHY POINT) │
-   └──┬──────────────────┬──────────────────────┬───────────────┘
-      │ 1:N              │ 1:N                  │ 1:N
-      │ CASCADE          │ CASCADE              │ CASCADE
-      ▼                  ▼                      ▼
- ┌───────────┐     ┌───────────┐          ┌───────────┐
- │ vehicles  │     │  orders   │          │  routes   │
- │───────────│     │───────────│          │───────────│
- │ reg_no  U │     │ order_no U│          │ route_codeU│
- │ capacity  │     │ weight_kg │          │ status     │
- │ status    │     │ priority  │          │ distance   │
- │ curr_lat  │     │ status    │          │ progress_  │
- │ curr_lon  │     │ window_*  │          │  stop_index│
- └─────┬─────┘     └─────┬─────┘          └─────┬─────┘
-       │                 │                      │
-       │ 1:N             │                      │ 1:N
-       │ SET NULL        │                      │ CASCADE
-       └────────────────►│◄─────────────────────┘
-                         │
-              ┌──────────┴───────────┐
-              │     route_stops      │  the heart of the model:
-              │──────────────────────│  one row = "vehicle on route R
-              │ route_id   → routes  │  visits order O, Nth in line"
-              │ order_id   → orders  │
-              │ stop_sequence  1,2,3…│
-              │ estimated_arrival    │
-              │ actual_arrival       │
-              │ distance_from_prev   │
-              │ status               │
-              └──────────────────────┘
+Three things the diagram makes visible:
 
-   ┌──────────────────────┐
-   │  optimization_runs   │  the audit log of every solve.
-   │──────────────────────│  result_payload (JSONB) holds the whole
-   │ status               │  proposed plan, which is what makes
-   │ objective            │  Accept/Discard a pure state change with
-   │ distance_before/after│  no recompute.
-   │ improvement_pct      │
-   │ result_payload JSONB │──── SET NULL ───► routes.optimization_run_id
-   │ depot_id  (plain int)│
-   └──────────────────────┘
-
-   TELEMETRY — append-only, write-heavy, never updated
-   ┌──────────────────────────┐      ┌────────────────────────┐
-   │ vehicle_location_history │      │    delivery_events     │
-   │──────────────────────────│      │────────────────────────│
-   │ vehicle_id → CASCADE     │      │ order_id → CASCADE     │
-   │ route_id   → SET NULL    │      │ route_id → CASCADE     │
-   │ lat/lon/speed            │      │ event_type             │
-   │ recorded_at              │      │ metadata JSONB         │
-   └──────────────────────────┘      └────────────────────────┘
-      a breadcrumb every ~300m           one row per delivery
-```
+- **`users` connects to nothing.** No table has a foreign key to it, so
+  deleting an account cannot orphan operational data. Login and permissions
+  only.
+- **`route_stops` is the hinge**, joining orders to routes while carrying its
+  own data — an *association object*, not a plain join table.
+- **Every `SET NULL` is deliberate.** Those are the edges where history is
+  designed to outlive the thing it happened to.
 
 ---
 
