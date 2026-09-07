@@ -172,12 +172,32 @@ cd frontend
 npm ci
 npm run dev        # http://localhost:5173, calling localhost:8000 directly
 
-npm run lint       # tsc --noEmit — the only automated check there is
+npm run lint       # tsc --noEmit
+npm test           # vitest run — 83 tests, ~3s
+npm run check      # both: typecheck then tests
 npm run build      # typecheck + production bundle
 ```
 
-There are **no tests**. `npm run lint` (a typecheck) is the whole safety net,
-which is worth knowing before changing anything non-obvious.
+### Tests
+
+83 tests under Vitest, all beside the code they cover
+(`client.test.ts` next to `client.ts`). They run in about three seconds and
+need nothing running — `fetch` and `WebSocket` are stubbed.
+
+| File | Covers |
+|---|---|
+| `api/client.test.ts` | Param dropping, auth header, both error shapes, the 401 rule |
+| `stores/stores.test.ts` | The `loading` third state, login ordering, toast timers |
+| `components/ui.test.tsx` | Modal unmount and click containment, badge fallback |
+| `hooks/useFleetSocket.test.tsx` | Connect-once, latest handler, reconnect, teardown |
+| `App.test.tsx` | The auth gate's three outcomes; map colour cycling |
+
+**What they do not cover:** the pages. Every screen — the tables, the filters,
+the Route Planner's polling, the LiveOps event handling — is untested, which is
+roughly two thirds of the code here. The pieces those screens are built from
+are covered; the screens themselves are not.
+
+`npm run check` is the gate to run before committing.
 
 | Env var | For |
 |---|---|

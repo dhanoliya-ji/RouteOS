@@ -139,12 +139,11 @@ Each of those folders has a `README.md` that explains itself when you open it.
 
 ## Two honest warnings
 
-- **The backend has tests; the frontend has none.** `cd backend && pytest` is
-  108 tests — the algorithms, auth, the permission matrix, and the order and
-  optimization APIs. 50 of them need a PostGIS test database and **skip**
-  without one, so check the skip count before trusting a green run. The
-  simulation engine, the WebSocket and the whole UI remain untested; a
-  typecheck is the frontend's entire safety net.
+- **Both halves have tests, and both have gaps.** `cd backend && pytest` is
+  108 tests, but 50 need a PostGIS database and **skip** without one — check
+  the skip count before trusting a green run. `cd frontend && npm test` is 83
+  tests needing nothing. Still untested: the simulation engine, the WebSocket
+  server side, the analytics SQL, and every frontend page.
 - **Some numbers are approximations, and say so.** Distances are straight-line
   × 1.25 unless OSRM is enabled; vehicles travel in straight lines, not along
   roads. Where a figure is a simplification, the code comment next to it says

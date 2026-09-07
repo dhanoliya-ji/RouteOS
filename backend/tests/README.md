@@ -68,7 +68,8 @@ Worth knowing before trusting a green run:
 - **Vehicle, depot and route endpoints.** Only orders got the full CRUD
   treatment; the others are covered for permissions only.
 - **Analytics and dashboard.** The aggregation SQL is untested.
-- **The entire frontend.** A typecheck (`npm run lint`) is its only safety net.
+- **Frontend pages.** The frontend has its own suite (`npm test`, 83 tests)
+  covering the API client, stores, hooks and primitives — but no page.
 
 ---
 

@@ -213,10 +213,16 @@ possible:
 | pure functions | `test_geospatial.py` |
 | configuration | `test_config.py` |
 
-**The gap, if you want the highest-value contribution:** there is no test of any
-endpoint, any CRUD service, or any of auth. That needs a throwaway database —
-and `aiosqlite` is already a dependency, apparently added for exactly this and
-never used. The frontend has no tests at all.
+### On the frontend
+
+`cd frontend && npm test` — 83 tests under Vitest, beside the code they cover.
+Follow the same convention: `thing.test.ts` next to `thing.ts`.
+
+**The gap, if you want the highest-value contribution:** no page is tested.
+The Route Planner's polling loop, the LiveOps event switch, and every table and
+filter are uncovered — roughly two thirds of the frontend. Testing a page means
+stubbing `api/endpoints` and wrapping the render in a `QueryClientProvider`;
+`stores.test.ts` shows the module-stubbing pattern.
 
 ---
 
@@ -242,7 +248,7 @@ Ordered by how often they bite.
 
 ```bash
 cd backend  && pytest && python -c "import app.main"
-cd frontend && npm run lint && npm run build
+cd frontend && npm run check && npm run build
 ```
 
 The backend safety net is 108 tests in two tiers: 58 that need nothing, and
@@ -252,5 +258,5 @@ for the one-line container command. Without it those skip rather than fail, so a
 green run does not always mean the API was exercised. Check the skip count.
 
 Still uncovered: the simulation engine, the WebSocket, the analytics SQL, and
-the **entire frontend**, whose only automated check is a typecheck. For anything
-in those areas, run it and click through it.
+and every frontend **page**. For anything in those areas, run it and click
+through it.
