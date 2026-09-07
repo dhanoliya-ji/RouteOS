@@ -170,7 +170,7 @@ control.
 ```bash
 cd frontend
 npm ci
-npm run dev        # http://localhost:5173, proxying to localhost:8000
+npm run dev        # http://localhost:5173, calling localhost:8000 directly
 
 npm run lint       # tsc --noEmit — the only automated check there is
 npm run build      # typecheck + production bundle
@@ -188,6 +188,14 @@ which is worth knowing before changing anything non-obvious.
 All three are read at **build** time, not run time — a Vite bundle has the
 values baked in, so changing one means rebuilding.
 
+**There is no dev proxy.** The browser calls the backend's origin directly
+(`http://localhost:8000` by default), so what makes local development work is
+the backend's CORS allow-list — which defaults to
+`http://localhost:5173,http://127.0.0.1:5173`. If the dev server is moved to
+another port, that backend setting has to follow, or every request is blocked
+by the browser. A Vite `server.proxy` entry would be the alternative, trading a
+CORS dependency for a proxy one.
+
 ---
 
 ## Root files
@@ -195,7 +203,7 @@ values baked in, so changing one means rebuilding.
 | File | Purpose |
 |---|---|
 | `index.html` | The single page. Vite injects the bundle here. |
-| `vite.config.ts` | Dev server + the `/api` proxy that avoids CORS locally. |
+| `vite.config.ts` | Dev server config (port 5173, `host: true` so it is reachable from a container). No proxy — see below. |
 | `tailwind.config.js` | The `ink`/`brand` palettes the whole UI is built from. |
 | `postcss.config.js` | Wires Tailwind and autoprefixer into the build. |
 | `tsconfig.json` | Strict mode on. |
