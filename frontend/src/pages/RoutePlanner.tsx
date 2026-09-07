@@ -1,3 +1,11 @@
+// The core screen: pick orders and vehicles, solve, review, accept.
+//
+// Mirrors the backend's three-phase workflow, and the middle phase is the point
+// - a solved plan is DISPLAYED and nothing is dispatched until "Accept Plan" is
+// pressed. Until then the fleet is untouched.
+//
+// Three panels: pending orders (left), the map (centre), controls and the
+// result (right). See pages/README.md.
 import { useMemo, useState } from "react";
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -12,16 +20,28 @@ import type { Objective, OptimizationRun } from "../types";
 export default function RoutePlanner() {
   const push = useToast((s) => s.push);
   const [objective, setObjective] = useState<Objective>("BALANCED");
+  // Sets, not arrays: the only questions asked are "is this selected?" and
+  // "toggle it", both O(1) on a Set and O(n) on an array. With 200 orders
+  // rendered as checkboxes that difference is worth having.
   const [selOrders, setSelOrders] = useState<Set<number>>(new Set());
   const [selVehicles, setSelVehicles] = useState<Set<number>>(new Set());
   const [run, setRun] = useState<OptimizationRun | null>(null);
+  // The run currently being solved. Kept separately from `run` because it is
+  // needed to FILTER incoming progress events, and it is set before any result
+  // exists.
   const [jobId, setJobId] = useState<number | null>(null);
   const [progress, setProgress] = useState<{ elapsed: number; budget: number } | null>(null);
 
   const depots = useQuery({ queryKey: ["depots"], queryFn: depotApi.list });
+  // Single-depot assumption: the first depot is used throughout this screen.
+  // Multi-depot planning would need a depot picker and would change the
+  // request below.
   const depot = depots.data?.[0];
   const orders = useQuery({
     queryKey: ["planner-orders"],
+    // PENDING only - the backend would filter to these anyway, since an order
+    // already on a van must not be re-planned. page_size 200 fetches the whole
+    // selectable set in one request rather than paginating a picker.
     queryFn: () => orderApi.list({ status: "PENDING", page_size: 200 }),
   });
   const vehicles = useQuery({ queryKey: ["planner-vehicles"], queryFn: () => vehicleApi.list({ status: "AVAILABLE" }) });
@@ -38,12 +58,25 @@ export default function RoutePlanner() {
         vehicle_ids: [...selVehicles],
         objective,
       });
+      // Record the id before polling starts, so progress events arriving for
+      // this run are recognised.
       setJobId(queued.id);
+      // budget 0 until the first event says what it is; the bar renders a
+      // nominal 8% width in the meantime rather than looking stalled at zero.
       setProgress({ elapsed: 0, budget: 0 });
+      // Poll until the run settles.
+      //
+      // NOTE: no attempt cap and no deadline. A run stuck in PROCESSING would
+      // be polled every two seconds indefinitely. A maximum attempt count would
+      // be the obvious hardening.
       for (;;) {
+        // Sleep FIRST: the run was created a moment ago and cannot be finished
+        // yet, so an immediate poll is a wasted request.
         await new Promise((r) => setTimeout(r, 2000));
         const latest = await optimizationApi.get(queued.id);
         if (latest.status === "COMPLETED") return latest;
+        // Throwing routes this into the mutation's onError, so a failed solve
+        // surfaces as a toast like any other failure.
         if (latest.status === "FAILED") {
           throw new Error(latest.error_message || "Optimization failed");
         }
@@ -61,6 +94,13 @@ export default function RoutePlanner() {
   });
 
   // Progress heartbeats for the run currently being solved.
+  // Progress arrives by a DIFFERENT route than the result: polling above detects
+  // completion, while the percentage comes from the WebSocket.
+  //
+  // The `run_id === jobId` test is why the socket handler must see current
+  // state - and therefore why useFleetSocket keeps the handler in a ref rather
+  // than as an effect dependency. A stale closure would compare against an old
+  // jobId and silently drop every event.
   useFleetSocket((e) => {
     if (e.type === "OPTIMIZATION_PROGRESS" && e.data?.run_id === jobId) {
       setProgress({ elapsed: e.data.elapsed_seconds, budget: e.data.budget_seconds });
@@ -71,15 +111,22 @@ export default function RoutePlanner() {
     mutationFn: (id: number) => optimizationApi.accept(id),
     onSuccess: () => {
       push("Plan accepted — routes are now active", "success");
+      // Clear the whole workspace: the plan is now real routes, so leaving it
+      // on screen would invite accepting it twice.
       setRun(null);
       setSelOrders(new Set());
       setSelVehicles(new Set());
+      // Both lists changed server-side - the accepted orders are no longer
+      // PENDING and the used vehicles no longer AVAILABLE - so refetch rather
+      // than leave a stale picker showing them as selectable.
       orders.refetch();
       vehicles.refetch();
     },
     onError: (e: any) => push(e.message, "error"),
   });
 
+  // Toggle membership immutably. A NEW Set every time, because mutating the
+  // existing one would not change its identity and React would not re-render.
   const toggle = (set: Set<number>, id: number, setter: (s: Set<number>) => void) => {
     const next = new Set(set);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -87,6 +134,11 @@ export default function RoutePlanner() {
   };
 
   const payload = run?.result_payload;
+  // Build one polyline per planned route: depot -> each stop in sequence ->
+  // depot, so the closed loop matches what the vehicle will actually drive.
+  //
+  // useMemo because this runs on every render otherwise, and it is O(routes x
+  // stops) - with the map re-rendering on each progress event that adds up.
   const polylines = useMemo(() => {
     if (!payload || !depot) return [];
     return payload.routes.map((r, i) => ({
@@ -144,6 +196,9 @@ export default function RoutePlanner() {
             {polylines.map((p, i) => (
               <Polyline key={i} positions={p.positions} pathOptions={{ color: p.color, weight: 4, opacity: 0.8 }} />
             ))}
+            {/* Two modes for the same map area: once a plan exists, show its
+                stops coloured by route; before that, show the selected orders as
+                grey dots so the user can see the shape of what they picked. */}
             {payload
               ? payload.routes.flatMap((r, ri) =>
                   r.stops.map((s) => (
@@ -184,6 +239,9 @@ export default function RoutePlanner() {
             </div>
             <button
               className="btn-primary w-full"
+              // Guarded four ways, each matching a backend error this avoids
+              // provoking: already solving, no orders (422), no vehicles (422),
+              // or no depot loaded yet (404).
               disabled={runMut.isPending || selOrders.size === 0 || selVehicles.size === 0 || !depot}
               onClick={() => runMut.mutate()}
             >
@@ -206,6 +264,10 @@ export default function RoutePlanner() {
                   <div
                     className="h-full rounded-full bg-brand-600 transition-all duration-500"
                     style={{
+                      // Capped at 99% so the bar never claims completion while
+                      // the result is still being written. The 8% fallback gives
+                      // it a visible starting width before the first event
+                      // reports the budget.
                       width: progress?.budget
                         ? `${Math.min(99, (progress.elapsed / progress.budget) * 100)}%`
                         : "8%",
@@ -240,6 +302,9 @@ export default function RoutePlanner() {
                     Baseline: {comp.baseline.total_distance_km} km / {comp.baseline.vehicles_used} vehicles
                   </div>
                 </div>
+                {/* Surfaced rather than hidden: a plan that leaves orders behind
+                    is a decision the dispatcher needs to see, with the backend's
+                    inferred reason for each. */}
                 {payload!.unassigned.length > 0 && (
                   <div className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
                     {payload!.unassigned.length} unassigned:{" "}
@@ -280,6 +345,8 @@ export default function RoutePlanner() {
   );
 }
 
+// A small labelled figure. Local to this file - nothing else uses it, so it
+// stays out of components/ui.tsx.
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg bg-ink-50 p-2">
