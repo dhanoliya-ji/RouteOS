@@ -100,7 +100,7 @@ first — a new constraint is a real modelling decision, not a field copy.
 ### Verify
 
 ```bash
-cd backend && pytest                    # 25 tests
+cd backend && pytest                    # 108 tests (58 without a database)
 cd frontend && npm run lint             # tsc --noEmit
 ```
 
@@ -242,6 +242,12 @@ cd backend  && pytest && python -c "import app.main"
 cd frontend && npm run lint && npm run build
 ```
 
-That is the whole automated safety net: 25 backend tests covering the
-algorithms, and a frontend typecheck. Neither covers endpoints, CRUD or UI
-behaviour — so for anything in those areas, run it and click through it.
+The backend safety net is 108 tests in two tiers: 58 that need nothing, and
+50 more covering the API and business rules that run only when a PostGIS test
+database is reachable — see [`../backend/tests/README.md`](../backend/tests/README.md)
+for the one-line container command. Without it those skip rather than fail, so a
+green run does not always mean the API was exercised. Check the skip count.
+
+Still uncovered: the simulation engine, the WebSocket, the analytics SQL, and
+the **entire frontend**, whose only automated check is a typecheck. For anything
+in those areas, run it and click through it.

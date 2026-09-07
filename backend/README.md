@@ -205,7 +205,8 @@ alembic upgrade head              # create the tables
 python -m scripts.seed_data       # demo users, depot, fleet, orders
 uvicorn app.main:app --reload
 
-# Tests (no database needed — they use in-memory SQLite / call the solver directly)
+# Tests. 58 need nothing; 50 more need a PostGIS database and skip without
+# one — see tests/README.md for the container command.
 pytest
 ```
 

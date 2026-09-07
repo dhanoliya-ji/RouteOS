@@ -1,176 +1,172 @@
 # `backend/tests/` — the test suite
 
-25 tests across four files. **None of them touch a database, a network or an
-HTTP server.**
+108 tests in two tiers.
 
 ```bash
 cd backend
-pytest              # ~60 seconds
-pytest -q           # quiet
-pytest tests/test_optimization.py -v      # one file
-pytest -k capacity                        # one topic
+pytest                                    # 108 with a database, 58 without
+pytest -q                                 # quiet
+pytest tests/test_orders_api.py -v        # one file
+pytest -k permission                      # one topic
+pytest --durations=10                     # find the slow ones
 ```
 
-The runtime is almost entirely OR-Tools: `test_optimization.py` runs real
-solves, and a real solve takes seconds by design.
-
 ---
 
-## What is tested, and what isn't
+## The two tiers
 
-That every test is DB-free is a deliberate consequence of the architecture, not
-an accident. Because `optimization/` takes plain dataclasses instead of ORM rows
-(see [`../app/optimization/README.md`](../app/optimization/README.md)), the
-interesting logic can be tested by constructing a few objects.
+**Tier 1 — no database (58 tests, always run).** Algorithms, configuration,
+security primitives and the permission matrix. Nothing to install, nothing to
+start.
+
+**Tier 2 — a real PostGIS database (50 tests, skipped without one).** The API
+and business-rule tests.
+
+Why Tier 2 needs real Postgres rather than SQLite: the app stores `Geography`
+columns and `JSONB`, and calls `date_trunc` and `ST_DWithin`. SQLite has none of
+them, so testing on it would mean stubbing out the very code paths under test —
+tests that pass while proving little. Instead these skip cleanly, so `pytest`
+still works on a machine with no Docker:
 
 ```
-   TESTED (pure logic, no I/O)
-   ┌────────────────────────────────────────────────────────┐
-   │ core/config.py         URL + CORS normalisation        │
-   │ geospatial/distance.py haversine, road factor, time    │
-   │ optimization/solver.py the real OR-Tools model         │
-   │ optimization/baseline.py greedy capacity handling      │
-   │ services/optimization_service._better_plan             │
-   └────────────────────────────────────────────────────────┘
-
-   NOT TESTED (needs a database, a client, or a clock)
-   ┌────────────────────────────────────────────────────────┐
-   │ every API endpoint          (no httpx/TestClient tests)│
-   │ every CRUD service          (needs a session)          │
-   │ auth: hashing, JWT, RBAC    (no test at all)           │
-   │ simulation/engine.py        (needs a DB + time)        │
-   │ websocket/manager.py        (needs sockets)            │
-   │ accept_plan / discard_plan  (needs a DB)               │
-   └────────────────────────────────------------------------┘
+58 passed, 50 skipped
 ```
 
-The gap is worth naming honestly: the suite covers the *algorithms* well and the
-*plumbing* not at all. The highest-value additions would be endpoint tests via
-`httpx.AsyncClient` and a role-permission matrix test, both of which need a
-throwaway database.
+Start a database and they run:
+
+```bash
+docker run -d --name routeos-test-db \
+  -e POSTGRES_USER=routeos -e POSTGRES_PASSWORD=routeos_test \
+  -e POSTGRES_DB=routeos_test -p 55432:5432 postgis/postgis:16-3.4
+```
+
+Port **55432**, not 5432, so it cannot collide with a Postgres you already have
+running. Point elsewhere with `TEST_DATABASE_URL`.
 
 ---
 
-## File index
+## What is covered
 
-| File | Tests | Covers |
-|---|---|---|
-| `conftest.py` | — | shared fixtures |
-| `test_config.py` | 8 | settings normalisation, CORS regex safety |
-| `test_geospatial.py` | 4 | distance maths + greedy capacity |
-| `test_optimization.py` | 5 | the solver's constraints |
-| `test_plan_selection.py` | 6 | which plan gets dispatched |
+| File | Tests | Tier | Covers |
+|---|---:|---|---|
+| `test_config.py` | 10 | 1 | Settings normalisation, CORS regex safety |
+| `test_geospatial.py` | 4 | 1 | Distance maths, greedy capacity handling |
+| `test_optimization.py` | 5 | 1 | The solver's constraints, against the real OR-Tools |
+| `test_plan_selection.py` | 6 | 1 | Which of the two plans gets dispatched |
+| `test_security.py` | 15 | 1 | Password hashing, JWT signing and rejection |
+| `test_permissions.py` | 18 | 1 | The role ladder, and a role × endpoint matrix |
+| `test_orders_api.py` | 28 | 2 | Order CRUD, status rules, paging, PostGIS search |
+| `test_optimization_api.py` | 22 | 2 | Solve → review → accept → discard |
 
----
+### Still not covered
 
-## `test_config.py` — testing deployment wiring
+Worth knowing before trusting a green run:
 
-Unusual to unit-test configuration, but these encode things that broke real
-deploys:
-
-- **A managed `postgres://` URL must yield both driver URLs.** One env var in,
-  an asyncpg URL for the app and a psycopg URL for Alembic out.
-- **A bare hostname must expand to a full origin.** Some hosts inject a peer
-  service's hostname with no scheme, and CORS matching is exact — a bare host
-  would never match a browser's `Origin` header.
-- **The CORS regex must reject lookalikes.** This one is security-relevant, and
-  the test says so:
-
-  ```
-  allowed:  https://routeos-frontend.onrender.com
-            https://routeos-frontend-x9k2.onrender.com
-  rejected: https://onrender.com.evil.com      <- suffix spoofing
-            http://routeos-frontend.onrender.com  <- not TLS
-            https://sub.routeos.onrender.com      <- extra label
-  ```
-
-  A pattern anchored only at the start would admit the first of those. The
-  `$` anchor is what makes it safe, and the test is what keeps it there.
-
-Each test passes `_env_file=None` so an ambient `.env` cannot make the
-assertions non-deterministic.
+- **The simulation engine.** Movement, the tick loop, and arrival handling have
+  no tests — they need a database *and* control of time.
+- **The WebSocket.** No test connects to `/ws/fleet` or asserts an event payload.
+- **Vehicle, depot and route endpoints.** Only orders got the full CRUD
+  treatment; the others are covered for permissions only.
+- **Analytics and dashboard.** The aggregation SQL is untested.
+- **The entire frontend.** A typecheck (`npm run lint`) is its only safety net.
 
 ---
 
-## `test_optimization.py` — pinning solver constraints
+## How the fixtures work
 
-These run the actual solver and assert on properties, not exact answers — the
-right approach for a heuristic, whose output may legitimately change between
-versions or CPU speeds:
+All in `conftest.py`.
 
-| Test | Asserts |
+```
+db_engine   an engine, against a schema created once per process
+    │
+db          a session in a transaction that is ALWAYS rolled back
+    │
+client      an httpx client whose requests use that same session
+    │
+as_dispatcher   the same client, signed in as a DISPATCHER
+```
+
+**Isolation comes from the transaction, not from recreating the schema.** Every
+test runs inside one that is rolled back afterwards, so tests share a schema and
+still cannot see each other's data. Because `client` overrides `get_db` with the
+test's own session, a row the test creates is visible to the request, and a row
+the request creates is visible to the test — then all of it disappears.
+
+Two details in there are load-bearing, and commented as such:
+
+- **The schema is built once per process behind a module flag**, not by a
+  session-scoped fixture. asyncpg binds a connection to the event loop that
+  created it, so a session-scoped async fixture is a `ScopeMismatch` against
+  function-scoped tests.
+- **The teardown rollback is guarded.** A test that provokes a constraint
+  violation has already had its transaction aborted, and rolling back again
+  warns.
+
+`as_dispatcher` overrides `get_current_user` rather than logging in for real.
+Logging in would work, but it would make every CRUD test depend on the auth
+flow, so one auth bug would fail dozens of unrelated tests. Authentication has
+its own file.
+
+---
+
+## Conventions worth following
+
+**Assert properties, not exact answers — for anything heuristic.**
+`test_optimization.py` never asserts a specific route. The solver is a
+time-bounded heuristic whose output legitimately varies between versions and
+machines, but "no van is overloaded" must hold every time. Its quality floor
+allows the solver to be 5% *worse* than greedy, deliberately: demanding a win
+would make the suite fail on a loaded machine rather than on a regression.
+
+**Document behaviour you did not fix.** Two tests pin defects rather than
+wishes, and say so in their docstrings:
+
+- `test_a_missing_depot_raises_rather_than_answering` — nothing handles
+  `IntegrityError`, so a foreign-key violation escapes as an unhandled
+  exception instead of a clean 409. Reachable in production through the
+  `MAX(id)` order-number race too.
+- `test_missing_expiry_is_still_decodable` — PyJWT enforces `exp` only when the
+  claim is present. Nothing here mints a token without one, but the guarantee
+  should not be overstated.
+
+A test that asserts the behaviour you *want* while the code does something else
+is worse than no test: it fails for the right reason once and then gets
+disabled.
+
+**Push an objective against the constraint it should not beat.** The capacity
+test uses `MIN_DISTANCE` precisely *because* the cheapest plan by distance would
+overload one van — so the test proves the constraint wins rather than that the
+objective happened to agree with it.
+
+---
+
+## Two tests found real bugs
+
+Both are fixed, and both are the argument for having written any of this.
+
+**Cross-field validation returned 500 instead of 422.** A rule enforced by a
+`@model_validator` raising `ValueError` — the delivery-window check — put the
+raw exception object in pydantic's `ctx`, which `json.dumps` cannot serialise.
+The 422 was never sent and the field-level detail was lost. Fixed with
+`jsonable_encoder` in `core/errors.py`.
+
+**A plan could be accepted twice.** Accepting left the run `COMPLETED`, and
+that status was the only guard, so a double-click dispatched the fleet twice —
+duplicate routes, orders re-assigned, vehicle loads overwritten. Fixed by
+guarding on the routes' own `optimization_run_id`, which needed no migration.
+
+---
+
+## Timing
+
+About two minutes with a database, and where it goes is worth knowing:
+
+| Cost | Why |
 |---|---|
-| capacity separation | 60 kg + 50 kg never share a 100 kg van |
-| structural validity | sequences ordered, no order visited twice, assigned ∪ unassigned covers the input exactly and the two don't overlap |
-| impossible order | a 500 kg order for a 100 kg fleet is reported `CAPACITY_EXCEEDED`, not silently dropped |
-| time windows | a stop with a 0–30 min window gets an ETA ≤ 30 |
-| quality floor | the solver is within 5% of greedy or better |
+| ~60s | `test_optimization.py` runs real OR-Tools searches. Inherent. |
+| ~35s | `test_optimization_api.py` also solves, with the budget turned down to 1s per test via `monkeypatch`. |
+| ~5s | One test hits `/health`, which genuinely probes Postgres and Redis. |
+| ~3s each | Two permission rows are slow because the simulation endpoints open their **own** session rather than taking `get_db`, so the stub cannot reach them. |
 
-Two design notes:
-
-**`pytest.importorskip("ortools")`** at the top — the suite degrades to skipping
-these rather than erroring if OR-Tools isn't installed.
-
-**The quality floor is `base_dist * 1.05`, not `base_dist`.** Deliberately
-loose, because the solver is a time-bounded heuristic: demanding it always win
-would make the test flaky on a slow or loaded machine. It catches a real
-regression (the solver becoming dramatically worse) without failing on noise.
-
----
-
-## `test_plan_selection.py` — the most interesting file
-
-Tests `_better_plan`, the rule deciding whether to dispatch the solver's plan or
-the greedy baseline's. The cases read as documentation of the policy:
-
-```
-   solver beats baseline on distance and vehicles   -> solver
-   solver ran out of time and came back worse       -> baseline
-   one plan serves more orders, even if pricier     -> that one
-   exact tie                                        -> solver
-   100 km longer but one fewer vehicle              -> solver
-```
-
-The last is the one that pins the model's own trade-off, and the final test
-states it as a number:
-
-```python
-assert _plan_cost(one_vehicle)  == 310.0     # 10 km + 1 × 300
-assert _plan_cost(two_vehicles) == 610.0     # 10 km + 2 × 300
-```
-
-A vehicle is priced at 300 km. That mirrors `VEHICLE_FIXED_COST` inside the
-solver, so both plans are judged by the trade-off the solver was optimising for.
-If someone changes one constant and not the other, this test fails — which is
-exactly what it is for.
-
-The second case is documented as **observed behaviour**, not a hypothetical: a
-CPU-starved instance really did return a longer plan on the same vehicle count.
-
----
-
-## Two things to know about the setup
-
-**1. `asyncio_mode = auto`** (in `pytest.ini`) means an `async def` test needs no
-`@pytest.mark.asyncio` decorator. Nothing in the current suite is actually async,
-but the setting is what lets you add one without ceremony.
-
-**2. The `event_loop` fixture in `conftest.py` is legacy.**
-
-```python
-@pytest.fixture(scope="session")
-def event_loop(): ...
-```
-
-Overriding `event_loop` is deprecated in pytest-asyncio 0.25 (the pinned
-version) in favour of `asyncio_default_fixture_loop_scope`. It is harmless today
-because no test is async, and the fixture is simply never requested — but it
-will warn, and eventually break, once async tests are added. The modern
-equivalent is a line in `pytest.ini`, not a fixture.
-
-**3. `aiosqlite` is an unused dependency.**
-
-It sits in `requirements.txt` under the test section, presumably intended for
-in-memory database tests. No test imports it, and nothing in the app references
-SQLite. It should either be used — it is the obvious way to close the CRUD
-coverage gap above — or dropped.
+`pytest -k "not optimization"` runs everything else in a few seconds while
+iterating.
