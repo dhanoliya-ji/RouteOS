@@ -26,7 +26,7 @@ import asyncio
 import time as _time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -592,6 +592,29 @@ async def accept_plan(db: AsyncSession, run_id: int) -> list[Route]:
     # if something went wrong, and accepting that would create empty routes.
     if run.status != OptimizationStatus.COMPLETED or not run.result_payload:
         raise APIError("PLAN_NOT_READY", "Optimization run is not in a completed state", 409)
+
+    # Refuse a second accept.
+    #
+    # The status check above is not sufficient on its own: accepting does not
+    # change the run's status, so a COMPLETED run stays acceptable forever.
+    # Without this guard a double-click on Accept dispatches the fleet TWICE —
+    # a duplicate route per vehicle, orders re-assigned, and each vehicle's
+    # current_load_kg overwritten by the second plan.
+    #
+    # The routes themselves are the record of having been accepted: every one
+    # created below carries this run's id, so their existence is the check. No
+    # new column or status is needed.
+    already_accepted = (
+        await db.execute(
+            select(func.count(Route.id)).where(Route.optimization_run_id == run.id)
+        )
+    ).scalar_one()
+    if already_accepted:
+        raise APIError(
+            "PLAN_ALREADY_ACCEPTED",
+            f"This plan was already accepted and created {already_accepted} route(s)",
+            409,
+        )
 
     payload = run.result_payload
     # The origin the solver measured from — turns relative ETAs back into
