@@ -23,4 +23,7 @@ tenacity==9.0.0
 # --- test / dev ---
 pytest==8.3.4
 pytest-asyncio==0.25.0
-aiosqlite==0.20.0
+# NOTE: no aiosqlite. The DB-backed tests use a real PostGIS instance, because
+# the app depends on Geography columns, JSONB, date_trunc and ST_DWithin —
+# none of which SQLite has, so testing on it would stub out the code under
+# test. See tests/conftest.py for the container command.
