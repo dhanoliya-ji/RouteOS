@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  RouteOS Dispatch Console — an interactive explorer for this codebase.
+
+  Open this file directly in a browser; it needs no server and no build.
+  Everything is inline except three Google Fonts.
+
+  Every figure in it was measured from the repository: the counts by
+  collection, and the optimizer table from an actual run of
+  `python -m scripts.benchmark --sizes 20 40` at a 2-second budget.
+
+  A hosted copy is linked from START-HERE.md. Keep the two in step, or
+  delete one — a stale duplicate is worse than either.
+-->
+<title>RouteOS Dispatch Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+</head>
+<body>
+<style>
+  /* ---------------------------------------------------------------------
+     Dark-first: a dispatch console is dark. The bare :root carries the
+     complete dark palette; the light palette is redefined below, guarded so
+     an explicit dark choice still wins.
+     --------------------------------------------------------------------- */
+  :root {
+    --ground:    #0f1821;
+    --panel:     #16212c;
+    --panel-2:   #1c2936;
+    --edge:      #263644;
+    --edge-soft: #1e2b38;
+    --ink:       #e8eef3;
+    --ink-dim:   #a9bccb;
+    --muted:     #7e93a5;
+    --signal:    #f2a33c;
+    --signal-dim:#7a5320;
+    --route:     #4d8ff5;
+    --won:       #3fb98a;
+    --crit:      #e05a5a;
+    --shadow:    0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.35);
+
+    --f-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --f-body:    "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --f-mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --ground:    #eef2f5;
+      --panel:     #ffffff;
+      --panel-2:   #f5f8fa;
+      --edge:      #cfdae3;
+      --edge-soft: #e3eaf0;
+      --ink:       #0e1a24;
+      --ink-dim:   #3d5566;
+      --muted:     #64798a;
+      --signal:    #b26a09;
+      --signal-dim:#f0d9b4;
+      --route:     #1f5fd0;
+      --won:       #1c7f5c;
+      --crit:      #b8342f;
+      --shadow:    0 1px 0 rgba(255,255,255,.6), 0 6px 18px rgba(16,32,48,.10);
+    }
+  }
+
+  :root[data-theme="light"] {
+    --ground:    #eef2f5;
+    --panel:     #ffffff;
+    --panel-2:   #f5f8fa;
+    --edge:      #cfdae3;
+    --edge-soft: #e3eaf0;
+    --ink:       #0e1a24;
+    --ink-dim:   #3d5566;
+    --muted:     #64798a;
+    --signal:    #b26a09;
+    --signal-dim:#f0d9b4;
+    --route:     #1f5fd0;
+    --won:       #1c7f5c;
+    --crit:      #b8342f;
+    --shadow:    0 1px 0 rgba(255,255,255,.6), 0 6px 18px rgba(16,32,48,.10);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 1280px; margin: 0 auto; padding: 22px 20px 56px; }
+
+  /* --- manifest header: set like a freight document ------------------- */
+  .manifest {
+    border: 1px solid var(--edge);
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+  .manifest-top {
+    display: flex; flex-wrap: wrap; align-items: flex-end;
+    gap: 10px 24px; padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--edge);
+  }
+  .wordmark {
+    font-family: var(--f-display);
+    font-weight: 700; font-size: 40px; line-height: .92;
+    letter-spacing: .01em; text-transform: uppercase; margin: 0;
+    text-wrap: balance;
+  }
+  .wordmark span { color: var(--signal); }
+  .tagline {
+    font-family: var(--f-mono); font-size: 11.5px; color: var(--muted);
+    letter-spacing: .04em; padding-bottom: 5px; max-width: 44ch;
+  }
+  .theme-btn {
+    margin-left: auto; align-self: center;
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-dim);
+    background: var(--panel-2); border: 1px solid var(--edge);
+    padding: 7px 11px; cursor: pointer;
+  }
+  .theme-btn:hover { color: var(--signal); border-color: var(--signal); }
+
+  /* readout strip — real measured figures */
+  .readout {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  }
+  .cell {
+    padding: 11px 16px 12px;
+    border-right: 1px solid var(--edge-soft);
+  }
+  .cell:last-child { border-right: 0; }
+  .cell dt {
+    font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 3px;
+  }
+  .cell dd {
+    margin: 0; font-family: var(--f-display); font-weight: 600;
+    font-size: 25px; line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .cell dd small {
+    font-family: var(--f-mono); font-size: 10px; font-weight: 400;
+    color: var(--muted); letter-spacing: .03em; margin-left: 3px;
+  }
+
+  /* --- station rail + stage ------------------------------------------- */
+  .console { display: grid; grid-template-columns: 208px 1fr; gap: 18px; margin-top: 18px; }
+  @media (max-width: 880px) { .console { grid-template-columns: 1fr; } }
+
+  .rail { display: flex; flex-direction: column; gap: 6px; }
+  @media (max-width: 880px) {
+    .rail { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  }
+  .station {
+    display: grid; grid-template-columns: 26px 1fr; align-items: baseline;
+    gap: 9px; text-align: left; width: 100%;
+    background: var(--panel); color: var(--ink-dim);
+    border: 1px solid var(--edge); border-left: 3px solid transparent;
+    padding: 10px 12px; cursor: pointer; font-family: var(--f-body);
+    font-size: 13.5px; white-space: nowrap;
+  }
+  .station b {
+    font-family: var(--f-mono); font-size: 10.5px; color: var(--muted);
+    font-weight: 500; letter-spacing: .04em;
+  }
+  .station:hover { border-color: var(--edge); color: var(--ink); background: var(--panel-2); }
+  .station[aria-selected="true"] {
+    border-left-color: var(--signal); color: var(--ink);
+    background: var(--panel-2);
+  }
+  .station[aria-selected="true"] b { color: var(--signal); }
+
+  .stage {
+    background: var(--panel); border: 1px solid var(--edge);
+    box-shadow: var(--shadow); min-height: 560px;
+  }
+  .stage-head {
+    padding: 15px 20px 13px; border-bottom: 1px solid var(--edge);
+  }
+  .stage-head h2 {
+    font-family: var(--f-display); font-weight: 600; font-size: 27px;
+    margin: 0 0 3px; letter-spacing: .01em; text-wrap: balance;
+  }
+  .stage-head p { margin: 0; color: var(--ink-dim); font-size: 13.5px; max-width: 68ch; }
+
+  /* --- generic split: picker | detail --------------------------------- */
+  .split { display: grid; grid-template-columns: 244px 1fr; }
+  @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+  .picker { border-right: 1px solid var(--edge); }
+  @media (max-width: 760px) { .picker { border-right: 0; border-bottom: 1px solid var(--edge); } }
+  .detail { padding: 18px 20px 22px; overflow-x: auto; }
+
+  .pick {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: transparent; color: var(--ink-dim);
+    border: 0; border-bottom: 1px solid var(--edge-soft);
+    border-left: 3px solid transparent;
+    padding: 9px 13px; font-family: var(--f-body); font-size: 13.5px;
+  }
+  .pick:hover { background: var(--panel-2); color: var(--ink); }
+  .pick[aria-selected="true"] {
+    border-left-color: var(--signal); background: var(--panel-2); color: var(--ink);
+  }
+  .pick i {
+    display: block; font-style: normal; font-family: var(--f-mono);
+    font-size: 10px; color: var(--muted); letter-spacing: .04em; margin-top: 1px;
+  }
+  .pick[aria-selected="true"] i { color: var(--signal); }
+
+  h3.dt {
+    font-family: var(--f-display); font-weight: 600; font-size: 21px;
+    margin: 0 0 2px; letter-spacing: .01em;
+  }
+  .dt-sub {
+    font-family: var(--f-mono); font-size: 11px; color: var(--muted);
+    letter-spacing: .05em; text-transform: uppercase; margin: 0 0 14px;
+  }
+  .detail p { margin: 0 0 11px; max-width: 66ch; color: var(--ink-dim); }
+  .detail p strong { color: var(--ink); font-weight: 600; }
+  code {
+    font-family: var(--f-mono); font-size: .875em;
+    background: var(--panel-2); border: 1px solid var(--edge-soft);
+    padding: 1px 4px; color: var(--ink);
+  }
+
+  .label {
+    font-family: var(--f-mono); font-size: 10px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--muted);
+    margin: 18px 0 7px;
+  }
+
+  ul.plain { margin: 0 0 4px; padding-left: 17px; color: var(--ink-dim); }
+  ul.plain li { margin-bottom: 5px; max-width: 64ch; }
+
+  .files { display: flex; flex-wrap: wrap; gap: 5px; }
+  .file {
+    font-family: var(--f-mono); font-size: 11.5px;
+    background: var(--panel-2); border: 1px solid var(--edge);
+    padding: 3px 7px; color: var(--ink-dim);
+  }
+
+  /* a rule callout — the one lifted element, used sparingly */
+  .rule {
+    border-left: 3px solid var(--signal);
+    background: var(--panel-2);
+    padding: 11px 14px; margin: 14px 0 4px;
+  }
+  .rule dt {
+    font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--signal); margin-bottom: 4px;
+  }
+  .rule dd { margin: 0; font-size: 13.5px; color: var(--ink); max-width: 62ch; }
+
+  /* --- trace ---------------------------------------------------------- */
+  .trace-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; border-bottom: 1px solid var(--edge);
+    background: var(--panel-2); flex-wrap: wrap;
+  }
+  .req {
+    font-family: var(--f-mono); font-size: 12.5px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--edge); padding: 5px 9px;
+  }
+  .req em { font-style: normal; color: var(--signal); font-weight: 600; }
+  .stepper { display: flex; gap: 6px; margin-left: auto; }
+  .stepper button {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .07em;
+    text-transform: uppercase; cursor: pointer;
+    background: var(--panel); color: var(--ink-dim);
+    border: 1px solid var(--edge); padding: 6px 11px;
+  }
+  .stepper button:hover:not(:disabled) { color: var(--signal); border-color: var(--signal); }
+  .stepper button:disabled { opacity: .38; cursor: not-allowed; }
+  .counter {
+    font-family: var(--f-mono); font-size: 11px; color: var(--muted);
+    align-self: center; letter-spacing: .06em; font-variant-numeric: tabular-nums;
+  }
+
+  .ladder { display: grid; grid-template-columns: 1fr; }
+  .rung {
+    display: grid; grid-template-columns: 34px 128px 1fr;
+    gap: 12px; align-items: start;
+    padding: 9px 20px; border-bottom: 1px solid var(--edge-soft);
+    background: transparent; width: 100%; text-align: left;
+    border-left: 3px solid transparent; border-right: 0; border-top: 0;
+    cursor: pointer; font-family: var(--f-body); color: var(--muted);
+  }
+  .rung:last-child { border-bottom: 0; }
+  .rung:hover { background: var(--panel-2); }
+  .rung[data-on="1"] { color: var(--ink); border-left-color: var(--signal); background: var(--panel-2); }
+  .rung[data-past="1"] { color: var(--ink-dim); }
+  .rung .n {
+    font-family: var(--f-mono); font-size: 11px; padding-top: 2px;
+    font-variant-numeric: tabular-nums; color: var(--muted);
+  }
+  .rung[data-on="1"] .n { color: var(--signal); font-weight: 600; }
+  .rung .where {
+    font-family: var(--f-mono); font-size: 11.5px; color: var(--ink-dim);
+    word-break: break-all; padding-top: 2px;
+  }
+  .rung .what { font-size: 13.5px; }
+  .rung .gate {
+    display: inline-block; font-family: var(--f-mono); font-size: 10px;
+    letter-spacing: .06em; color: var(--crit);
+    border: 1px solid var(--crit); padding: 0 5px; margin-left: 7px;
+    vertical-align: 1px;
+  }
+
+  /* --- optimizer ------------------------------------------------------ */
+  .duel { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 4px 0 6px; }
+  @media (max-width: 700px) { .duel { grid-template-columns: 1fr; } }
+  .plan {
+    border: 1px solid var(--edge); background: var(--panel-2); padding: 13px 15px;
+  }
+  .plan.winner { border-color: var(--won); }
+  .plan h4 {
+    font-family: var(--f-display); font-weight: 600; font-size: 19px;
+    margin: 0 0 1px; letter-spacing: .01em;
+  }
+  .plan .kind {
+    font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+  .plan.winner .kind { color: var(--won); }
+  .metric {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--edge-soft);
+    font-size: 13px;
+  }
+  .metric:last-of-type { border-bottom: 0; }
+  .metric span { color: var(--muted); font-size: 12px; }
+  .metric b {
+    font-family: var(--f-mono); font-weight: 500; font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .bars { margin: 6px 0 0; }
+  .bar-row { display: grid; grid-template-columns: 74px 1fr 72px; gap: 10px; align-items: center; padding: 3px 0; }
+  .bar-row .bl { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); letter-spacing: .05em; }
+  .bar-track { height: 13px; background: var(--panel-2); border: 1px solid var(--edge-soft); position: relative; }
+  .bar-fill { position: absolute; inset: 0 auto 0 0; }
+  .bar-row .bv { font-family: var(--f-mono); font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.grid th, table.grid td {
+    text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--edge-soft);
+    vertical-align: top;
+  }
+  table.grid th {
+    font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); font-weight: 500;
+    border-bottom-color: var(--edge);
+  }
+  table.grid td.num {
+    font-family: var(--f-mono); font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  table.grid td.mono { font-family: var(--f-mono); font-size: 11.5px; color: var(--ink-dim); }
+
+  .pill {
+    display: inline-block; font-family: var(--f-mono); font-size: 10px;
+    letter-spacing: .06em; padding: 1px 6px; border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .pill.cascade { color: var(--crit); }
+  .pill.setnull { color: var(--won); }
+
+  footer {
+    margin-top: 20px; display: flex; flex-wrap: wrap; gap: 6px 18px;
+    align-items: baseline; font-family: var(--f-mono); font-size: 11px;
+    color: var(--muted); letter-spacing: .03em;
+  }
+  footer a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--edge); }
+  footer a:hover { color: var(--signal); border-color: var(--signal); }
+
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  .station, .pick, .rung, .theme-btn, .stepper button { transition: background .12s, color .12s, border-color .12s; }
+</style>
+
+<div class="shell">
+
+  <!-- ============ manifest header ============ -->
+  <div class="manifest">
+    <div class="manifest-top">
+      <h1 class="wordmark">Route<span>OS</span></h1>
+      <div class="tagline">
+        Fleet routing under capacity and time-window constraints.<br>
+        A dispatch console for reading the codebase.
+      </div>
+      <button class="theme-btn" id="theme" type="button">Invert</button>
+    </div>
+    <dl class="readout" id="readout"></dl>
+  </div>
+
+  <!-- ============ console ============ -->
+  <div class="console">
+    <div class="rail" role="tablist" aria-label="Stations" id="rail"></div>
+    <div class="stage">
+      <div class="stage-head">
+        <h2 id="stage-title"></h2>
+        <p id="stage-lede"></p>
+      </div>
+      <div id="stage-body"></div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Every figure on this page was measured from the repository, not estimated.</span>
+    <a href="https://github.com/dhanoliya-ji/RouteOS">github.com/dhanoliya-ji/RouteOS</a>
+  </footer>
+</div>
+
+<script>
+/* =====================================================================
+   Content. All of it read out of the repository during the documentation
+   pass — counts verified by collection, benchmark figures from an actual
+   `python -m scripts.benchmark` run at SOLVER_TIME_LIMIT_SECONDS=2.
+   ===================================================================== */
+
+const READOUT = [
+  { k: "Tables",        v: "9"    },
+  { k: "Endpoints",     v: "45"   },
+  { k: "WS events",     v: "13"   },
+  { k: "Tests",         v: "108"  },
+  { k: "Solver budget", v: "180",  u: "s max" },
+  { k: "Sim tick",      v: "1.0",  u: "s" },
+];
+
+/* ---- 1. LAYERS ---- */
+const LAYERS = [
+  {
+    id: "api", name: "api/", sub: "the edge",
+    lede: "Where HTTP meets Python. Everything a client can reach is declared here, and nothing else.",
+    body: [
+      ["A handler does four things", [
+        "Declare the path, method and response shape.",
+        "Validate — by naming a schema type.",
+        "Authorize — by naming a dependency, which raises before the body runs.",
+        "Delegate to a service. One call, usually one line."
+      ]],
+    ],
+    rule: ["The diagnostic", "A handler longer than about five lines usually means a business rule leaked out of a service. There is no try/except here — the error handlers catch APIError globally."],
+    files: ["routes/orders.py", "routes/optimization.py", "routes/ws.py", "dependencies/auth.py"],
+    stat: "12 modules · 45 endpoints"
+  },
+  {
+    id: "schemas", name: "schemas/", sub: "the contract",
+    lede: "Pydantic models describing what may come in and what goes back out. Not database tables.",
+    body: [
+      ["Why restate the model", [
+        "OrderOut lists its fields explicitly, so a new internal column cannot leak into a response.",
+        "order_number is absent from OrderCreate, so a client cannot set it even by trying.",
+        "Update has every field optional — paired with exclude_unset, that distinguishes “leave alone” from “clear”."
+      ]],
+    ],
+    rule: ["The division of labour", "Schemas answer “is this well-formed?” — a 400-class problem. Services answer “is this allowed right now?” — a 409-class problem. Keeping them apart is why neither does the other's work."],
+    files: ["order.py", "optimization.py", "route.py", "common.py"],
+    stat: "7 files · route.py has no Create, by design"
+  },
+  {
+    id: "services", name: "services/", sub: "the rules",
+    lede: "The layer that knows the rules. A DELIVERED order may not be edited. A plan becomes routes only when someone accepts it.",
+    body: [
+      ["The one to read", [
+        "optimization_service.py — everything else is CRUD with rules.",
+        "It loads and validates, solves twice, keeps the winner, and stores the plan as JSON.",
+        "accept_plan then replays that JSON into real routes, in a single transaction."
+      ]],
+    ],
+    rule: ["Why one commit", "Routes, stops, order statuses and vehicle statuses land together or not at all. A partial commit could leave orders marked ASSIGNED with no route to be on — an inconsistency nothing would later repair."],
+    files: ["optimization_service.py", "order_service.py", "simulation_service.py"],
+    stat: "8 modules · the widest importer in the codebase"
+  },
+  {
+    id: "optimization", name: "optimization/", sub: "the solver",
+    lede: "The algorithmic core. Imports no session, opens no connection, knows nothing about HTTP.",
+    body: [
+      ["Why that isolation matters", [
+        "Inputs and outputs are plain dataclasses, so the whole thing runs with no database.",
+        "A test builds a problem in three lines; a benchmark measures the algorithm alone.",
+        "Swapping the storage layer could not touch this package."
+      ]],
+    ],
+    rule: ["Node 0 is always the depot", "Orders are nodes 1..n, in the order given. That convention is assumed by every index calculation in the package."],
+    files: ["solver.py", "baseline.py", "matrix.py", "types.py"],
+    stat: "CVRPTW · guided local search under a clock"
+  },
+  {
+    id: "simulation", name: "simulation/", sub: "the clock",
+    lede: "One asyncio loop. Every second it advances each active vehicle, writes the new state, and announces it.",
+    body: [
+      ["Two dials, easily confused", [
+        "speed_multiplier (1×–60×) — how fast the clock runs. A demo control.",
+        "speed_factor (1.0 / 0.6 / 0.35 / 0.0) — how fast a vehicle goes. Traffic.",
+        "A breakdown is a factor of zero: the van stays in the simulation, keeping its position and pending stops."
+      ]],
+    ],
+    rule: ["The backend owns movement", "The browser never animates a van; it draws the coordinates it is sent. Otherwise two tabs would disagree, a refresh would jump, and the database would not match the map."],
+    files: ["engine.py"],
+    stat: "1 tick/second · history sampled every ~300 m"
+  },
+  {
+    id: "models", name: "models/", sub: "the schema",
+    lede: "One class per table. These classes are the schema — Alembic reads them to build migrations.",
+    body: [
+      ["Delete rules follow one principle", [
+        "Operational rows die with their parent — a depot cascades to its vehicles, orders and routes.",
+        "Historical rows outlive it — selling a van sets routes.vehicle_id to NULL rather than deleting the deliveries it made.",
+        "The SET NULL edges are the deliberate ones."
+      ]],
+    ],
+    rule: ["route_stops is the hinge", "Orders and routes are many-to-many, but the link carries its own data — sequence, both arrival times, leg distance. That makes it an association object, not a join table."],
+    files: ["order.py", "route.py", "vehicle.py", "enums.py"],
+    stat: "9 tables · PostGIS on depots and orders"
+  },
+  {
+    id: "core", name: "core/", sub: "the plumbing",
+    lede: "Config, logging, errors, security, Redis, metrics. Six files with no shared theme.",
+    body: [
+      ["What they do share", [
+        "Every other layer needs them, and none of them needs another layer.",
+        "core/ imports nothing from app/, so importing it can never create a cycle.",
+        "That is why settings and get_logger are safe to reach for anywhere."
+      ]],
+    ],
+    rule: ["Redis is an optimisation, never a dependency", "Every cache helper swallows its exceptions. If Redis is down a read degrades to “recompute”, never to a 500 — Postgres stays the only source of truth."],
+    files: ["config.py", "errors.py", "security.py", "redis.py"],
+    stat: "the bottom of the stack"
+  },
+];
+
+/* ---- 2. TRACE ---- */
+const TRACE = [
+  ["main.py", "Middleware stamps an X-Request-ID and starts a latency timer. A ContextVar, so every log line written deeper in the stack carries the same id without being passed it."],
+  ["routes/orders.py", "Router matched: create_order(). The handler body has not run yet — the dependencies below resolve first."],
+  ["dependencies/auth.py", "Decode the JWT, load the User, check the role.", "401 · 403"],
+  ["", "Why the user is re-read from the database even though the token carries the id and role: a JWT stays valid until it expires, 24 hours by default. That is_active check is the only revocation there is."],
+  ["schemas/order.py", "OrderCreate validates the body. Latitude in range, weight above zero, window end after start.", "422"],
+  ["services/order_service.py", "The business rules. Reserve the next ORD-00042 number; build the PostGIS point for the address."],
+  ["geospatial/queries.py", "make_point(lat, lon) takes the human argument order and emits ST_MakePoint(lon, lat). The swap happens once, here — reversed, it silently relocates Delhi to the Arctic."],
+  ["models/order.py", "The Order row takes shape. The geography column is written alongside the plain floats, so radius search works."],
+  ["db/session.py", "INSERT, then COMMIT. The service commits, not the dependency — only it knows where a unit of work ends."],
+  ["schemas/order.py", "OrderOut trims the row to public fields. No internal column leaks, because none is listed."],
+  ["main.py", "Log one JSON line, record the Prometheus metric, return 201."],
+];
+
+/* ---- 3. OPTIMIZER ---- */
+const BENCH = [
+  { n: 20, opt: 201.7, base: 235.9, gain: 14.5, ms: 2008 },
+  { n: 40, opt: 235.1, base: 298.7, gain: 21.3, ms: 2003 },
+];
+
+/* ---- 4. DATA MODEL ---- */
+const TABLES = [
+  {
+    t: "orders", sub: "a delivery to make",
+    note: "The busiest table: filtered, paginated, searched and radius-queried. PENDING is the only status the optimizer plans for — which is what stops an order already on a van being re-planned onto another.",
+    cols: [
+      ["order_number", "unique", "Server-assigned, so absent from the create schema"],
+      ["weight_kg", "float", "The capacity constraint the solver enforces"],
+      ["priority", "enum", "Scales the drop penalty: LOW 1 · NORMAL 2 · HIGH 4 · URGENT 8"],
+      ["status", "enum", "PENDING → ASSIGNED → OUT_FOR_DELIVERY → DELIVERED"],
+      ["location", "geography", "PostGIS point, GiST-indexed, kept in step with lat/lng"],
+    ],
+    fks: [["depot_id → depots", "cascade", "An order has no meaning without its depot"]]
+  },
+  {
+    t: "routes", sub: "one vehicle's work",
+    note: "Created only by accepting an optimization plan — there is no POST /routes, and no Create schema. That absence is what makes a route unforgeable through the API.",
+    cols: [
+      ["route_code", "unique", "RT-0007, assigned at accept time"],
+      ["total_distance_km", "float", "Frozen at accept time, not recomputed"],
+      ["actual_duration_minutes", "float", "Filled in by the simulation. Beside the estimate, this is what makes plan-versus-actual analysis possible"],
+      ["progress_stop_index", "int", "Denormalised cursor; −1 means still at the depot"],
+    ],
+    fks: [
+      ["vehicle_id → vehicles", "setnull", "The route outlives the van that drove it"],
+      ["depot_id → depots", "cascade", "Scoped to its hub"],
+      ["optimization_run_id → runs", "setnull", "A live route must not depend on its audit record"],
+    ]
+  },
+  {
+    t: "route_stops", sub: "the association object",
+    note: "The heart of the model. stop_sequence is what makes a route a route rather than a set — it is the visiting order the solver decided on.",
+    cols: [
+      ["stop_sequence", "int", "1, 2, 3 … the answer the solver was asked for"],
+      ["estimated_arrival", "timestamptz", "The solver's promise"],
+      ["actual_arrival", "timestamptz", "What happened. The pair is the raw material for on-time analysis"],
+      ["distance_from_previous_km", "float", "Per-leg, not cumulative, so re-sequencing rewrites only what changed"],
+      ["status", "enum", "PENDING vs COMPLETED is what makes mid-route re-planning safe"],
+    ],
+    fks: [
+      ["route_id → routes", "cascade", "A stop has no meaning without its route"],
+      ["order_id → orders", "cascade", "Same"],
+    ]
+  },
+  {
+    t: "vehicles", sub: "the fleet",
+    note: "Note what is missing: no PostGIS column. A vehicle's position is rewritten every second, and maintaining a geography column plus its index on every tick would cost more than the index returns.",
+    cols: [
+      ["registration_number", "unique", "Identifies a physical van"],
+      ["capacity_kg", "float", "The solver's hard limit per route"],
+      ["status", "enum", "AVAILABLE is the only status the optimizer will use"],
+      ["current_latitude", "float", "Plain floats. vehicles_nearby casts them to a point inside the query and accepts a full scan"],
+      ["max_route_distance_km", "float", "Bounded on the END node, so the limit covers the trip home"],
+    ],
+    fks: [["home_depot_id → depots", "cascade", "The fleet belongs to its hub"]]
+  },
+  {
+    t: "optimization_runs", sub: "the audit log",
+    note: "One row per solve, whether it succeeded, failed or was discarded. result_payload holds the entire proposed plan, which is what makes accepting a pure state transition with no re-solve.",
+    cols: [
+      ["status", "enum", "COMPLETED means a plan exists — not that it was applied"],
+      ["total_distance_before", "float", "The greedy baseline"],
+      ["total_distance_after", "float", "The dispatched plan. Storing both is what makes the saving a measurement"],
+      ["result_payload", "jsonb", "Routes, stops, comparison, horizon, plan_source"],
+      ["depot_id", "int", "A plain integer, not a foreign key — an inconsistency, flagged in the docs"],
+    ],
+    fks: []
+  },
+  {
+    t: "telemetry", sub: "append-only history",
+    note: "vehicle_location_history and delivery_events. Rows are inserted, never updated — a breadcrumb is a fact about one instant. These are the tables that grow without bound.",
+    cols: [
+      ["recorded_at", "timestamptz", "Sampled every ~300 m of travel, not every tick"],
+      ["speed", "float", "Average speed × the traffic factor, so a slow stretch is visible"],
+      ["event_type", "varchar", "DELIVERY_COMPLETED and friends"],
+      ["metadata", "jsonb", "The Python attribute is event_metadata — `metadata` is taken on the declarative Base"],
+    ],
+    fks: [
+      ["vehicle_id → vehicles", "cascade", "Breadcrumbs of a van you no longer have"],
+      ["route_id → routes", "setnull", "The position was real even if the route is gone"],
+    ]
+  },
+  {
+    t: "users", sub: "stands alone",
+    note: "No table has a foreign key to it, so deleting an account cannot orphan operational data. Login and permissions only — an order is not “owned” by a user in this model.",
+    cols: [
+      ["email", "unique", "The login identifier; the constraint provides the index"],
+      ["password_hash", "varchar", "bcrypt. The column name says hash, so the distinction is visible everywhere"],
+      ["role", "enum", "ADMIN bypasses every guard, which is the whole ladder in one line"],
+      ["is_active", "bool", "Checked on every request — the only way to revoke a live token"],
+    ],
+    fks: []
+  },
+];
+
+const STATIONS = [
+  { id: "layers", n: "01", label: "Layers",     title: "Seven layers, one direction",
+    lede: "Imports only ever point downward. To find what calls something you look up; what it needs, down. Pick a layer." },
+  { id: "trace",  n: "02", label: "Trace",      title: "One request, eleven steps",
+    lede: "POST /api/v1/orders — a dispatcher creating a delivery. Step through it, or click any rung." },
+  { id: "solve",  n: "03", label: "Optimizer",  title: "Two algorithms, one dispatched",
+    lede: "The solver is a heuristic on a clock, so it can lose to a greedy baseline. RouteOS runs both every time and ships the winner." },
+  { id: "model",  n: "04", label: "Data model", title: "Nine tables, chosen delete rules",
+    lede: "Operational rows die with their parent; historical rows outlive it. Pick a table." },
+];
+
+/* ===================== render ===================== */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+$("#readout").innerHTML = READOUT.map(r =>
+  `<div class="cell"><dt>${esc(r.k)}</dt><dd>${esc(r.v)}${r.u ? `<small>${esc(r.u)}</small>` : ""}</dd></div>`
+).join("");
+
+const rail = $("#rail");
+rail.innerHTML = STATIONS.map((s, i) =>
+  `<button class="station" role="tab" id="tab-${s.id}" aria-selected="${i === 0}" data-station="${s.id}" type="button">
+     <b>${s.n}</b><span>${esc(s.label)}</span>
+   </button>`
+).join("");
+
+let station = "layers", layer = "api", table = "orders", step = 0;
+
+function setStation(id) {
+  station = id;
+  [...rail.children].forEach(b => b.setAttribute("aria-selected", String(b.dataset.station === id)));
+  const s = STATIONS.find(x => x.id === id);
+  $("#stage-title").textContent = s.title;
+  $("#stage-lede").textContent = s.lede;
+  ({ layers: drawLayers, trace: drawTrace, solve: drawSolve, model: drawModel }[id])();
+}
+
+/* ---- layers ---- */
+function drawLayers() {
+  const L = LAYERS.find(l => l.id === layer);
+  $("#stage-body").innerHTML = `
+    <div class="split">
+      <div class="picker" role="tablist" aria-label="Layers">${LAYERS.map(l => `
+        <button class="pick" type="button" role="tab" data-layer="${l.id}" aria-selected="${l.id === layer}">
+          ${esc(l.name)}<i>${esc(l.sub)}</i>
+        </button>`).join("")}
+      </div>
+      <div class="detail">
+        <h3 class="dt">${esc(L.name)}</h3>
+        <p class="dt-sub">${esc(L.stat)}</p>
+        <p>${esc(L.lede)}</p>
+        ${L.body.map(([h, items]) => `
+          <p class="label">${esc(h)}</p>
+          <ul class="plain">${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>`).join("")}
+        <dl class="rule"><dt>${esc(L.rule[0])}</dt><dd>${esc(L.rule[1])}</dd></dl>
+        <p class="label">Files</p>
+        <div class="files">${L.files.map(f => `<span class="file">${esc(f)}</span>`).join("")}</div>
+      </div>
+    </div>`;
+  $("#stage-body").querySelectorAll("[data-layer]").forEach(b =>
+    b.addEventListener("click", () => { layer = b.dataset.layer; drawLayers(); }));
+}
+
+/* ---- trace ---- */
+function drawTrace() {
+  $("#stage-body").innerHTML = `
+    <div class="trace-bar">
+      <span class="req"><em>POST</em> /api/v1/orders</span>
+      <span class="counter" id="cnt"></span>
+      <span class="stepper">
+        <button type="button" id="prev">Back</button>
+        <button type="button" id="next">Step</button>
+      </span>
+    </div>
+    <div class="ladder" id="ladder">${TRACE.map((t, i) => `
+      <button class="rung" type="button" data-i="${i}">
+        <span class="n">${t[0] ? String(i + 1).padStart(2, "0") : "· ·"}</span>
+        <span class="where">${esc(t[0] || "why")}</span>
+        <span class="what">${esc(t[1])}${t[2] ? `<span class="gate">${esc(t[2])}</span>` : ""}</span>
+      </button>`).join("")}
+    </div>`;
+  $("#ladder").querySelectorAll("[data-i]").forEach(b =>
+    b.addEventListener("click", () => { step = +b.dataset.i; paintTrace(); }));
+  $("#prev").addEventListener("click", () => { step = Math.max(0, step - 1); paintTrace(); });
+  $("#next").addEventListener("click", () => { step = Math.min(TRACE.length - 1, step + 1); paintTrace(); });
+  paintTrace();
+}
+function paintTrace() {
+  $("#ladder").querySelectorAll("[data-i]").forEach(b => {
+    const i = +b.dataset.i;
+    b.dataset.on = i === step ? "1" : "0";
+    b.dataset.past = i < step ? "1" : "0";
+  });
+  $("#cnt").textContent = `${String(step + 1).padStart(2, "0")} / ${TRACE.length}`;
+  $("#prev").disabled = step === 0;
+  $("#next").disabled = step === TRACE.length - 1;
+}
+
+/* ---- optimizer ---- */
+function drawSolve() {
+  const max = Math.max(...BENCH.flatMap(b => [b.opt, b.base]));
+  $("#stage-body").innerHTML = `
+    <div class="detail">
+      <p class="label">The decision, on every run</p>
+      <div class="duel">
+        <div class="plan winner">
+          <h4>OR-Tools CVRPTW</h4>
+          <div class="kind">solver · dispatched here</div>
+          <div class="metric"><span>Model</span><b>capacity · distance · time</b></div>
+          <div class="metric"><span>Search</span><b>guided local search</b></div>
+          <div class="metric"><span>Budget</span><b>clamp(n × 1.6s, 30, 180)</b></div>
+          <div class="metric"><span>Drop penalty</span><b>5,000,000 × priority</b></div>
+        </div>
+        <div class="plan">
+          <h4>Nearest neighbour</h4>
+          <div class="kind">baseline · the honest yardstick</div>
+          <div class="metric"><span>Model</span><b>capacity only</b></div>
+          <div class="metric"><span>Search</span><b>none — greedy</b></div>
+          <div class="metric"><span>Budget</span><b>milliseconds</b></div>
+          <div class="metric"><span>Weakness</span><b>strands far clusters</b></div>
+        </div>
+      </div>
+
+      <dl class="rule">
+        <dt>Why a dumb algorithm is a real candidate</dt>
+        <dd>Given too little CPU for the problem size, guided local search can time out while still worse than greedy. Shipping that would mean dispatching a plan a human with a map would have beaten. So both run, and <code>plan_source</code> records which won — seeing <code>"baseline"</code> is a CPU signal, not a bug.</dd>
+      </dl>
+
+      <p class="label">Measured — scripts.benchmark, budget 2 s</p>
+      <div class="bars">
+        ${BENCH.map(b => `
+          <div class="bar-row">
+            <span class="bl">${b.n} orders</span>
+            <span class="bar-track">
+              <span class="bar-fill" style="width:${(b.base / max * 100).toFixed(1)}%;background:var(--edge)"></span>
+              <span class="bar-fill" style="width:${(b.opt / max * 100).toFixed(1)}%;background:var(--route)"></span>
+            </span>
+            <span class="bv">−${b.gain}%</span>
+          </div>`).join("")}
+        <div class="bar-row">
+          <span class="bl"></span>
+          <span class="bl">greedy km · <span style="color:var(--route)">solver km</span></span>
+          <span class="bl" style="text-align:right">gain</span>
+        </div>
+      </div>
+
+      <table class="grid" style="margin-top:14px">
+        <thead><tr><th>Orders</th><th>Solver</th><th>Greedy</th><th>Gain</th><th>Assigned</th><th>Solve</th></tr></thead>
+        <tbody>${BENCH.map(b => `
+          <tr>
+            <td class="num">${b.n}</td>
+            <td class="num">${b.opt.toFixed(1)} km</td>
+            <td class="num">${b.base.toFixed(1)} km</td>
+            <td class="num" style="color:var(--won)">−${b.gain}%</td>
+            <td class="num">${b.n}/${b.n}</td>
+            <td class="num">${(b.ms / 1000).toFixed(1)} s</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+
+      <p class="label">Then a human decides</p>
+      <p>A completed solve stores the whole plan as JSONB and changes <strong>nothing</strong> operationally — no route rows, no order status changes. Accepting replays that stored JSON rather than re-solving, because the search is time-bounded and a second run could legitimately return a different answer. A dispatcher must get the plan they approved.</p>
+
+      <dl class="rule">
+        <dt>Why the two constants must move together</dt>
+        <dd>The solver charges <code>VEHICLE_FIXED_COST</code> = 300,000 metre-equivalents to put any van on the road. The plan comparison prices a vehicle at <code>300</code> km. Same policy, two units — judging the plans by a different exchange rate could pick the plan the model considers worse.</dd>
+      </dl>
+    </div>`;
+}
+
+/* ---- data model ---- */
+function drawModel() {
+  const T = TABLES.find(x => x.t === table);
+  $("#stage-body").innerHTML = `
+    <div class="split">
+      <div class="picker" role="tablist" aria-label="Tables">${TABLES.map(t => `
+        <button class="pick" type="button" role="tab" data-table="${t.t}" aria-selected="${t.t === table}">
+          ${esc(t.t)}<i>${esc(t.sub)}</i>
+        </button>`).join("")}
+      </div>
+      <div class="detail">
+        <h3 class="dt">${esc(T.t)}</h3>
+        <p class="dt-sub">${esc(T.sub)}</p>
+        <p>${esc(T.note)}</p>
+
+        <p class="label">Columns worth knowing</p>
+        <table class="grid">
+          <thead><tr><th>Column</th><th>Type</th><th>Why</th></tr></thead>
+          <tbody>${T.cols.map(([c, ty, why]) => `
+            <tr><td class="mono">${esc(c)}</td><td class="mono">${esc(ty)}</td><td>${esc(why)}</td></tr>`).join("")}
+          </tbody>
+        </table>
+
+        ${T.fks.length ? `
+        <p class="label">Foreign keys and their delete rule</p>
+        <table class="grid">
+          <thead><tr><th>Reference</th><th>On delete</th><th>Because</th></tr></thead>
+          <tbody>${T.fks.map(([r, kind, why]) => `
+            <tr>
+              <td class="mono">${esc(r)}</td>
+              <td><span class="pill ${kind}">${kind === "cascade" ? "CASCADE" : "SET NULL"}</span></td>
+              <td>${esc(why)}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>` : `
+        <p class="label">Foreign keys</p>
+        <p>None. Nothing references this table, and it references nothing.</p>`}
+      </div>
+    </div>`;
+  $("#stage-body").querySelectorAll("[data-table]").forEach(b =>
+    b.addEventListener("click", () => { table = b.dataset.table; drawModel(); }));
+}
+
+/* ---- wiring ---- */
+rail.querySelectorAll("[data-station]").forEach(b =>
+  b.addEventListener("click", () => setStation(b.dataset.station)));
+
+$("#theme").addEventListener("click", () => {
+  const dark = !(document.documentElement.getAttribute("data-theme") === "light"
+    || (!document.documentElement.getAttribute("data-theme")
+        && window.matchMedia("(prefers-color-scheme: light)").matches));
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+});
+
+setStation("layers");
+</script>
+</body>
+</html>

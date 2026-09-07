@@ -1,5 +1,8 @@
 # How to change things
 
+Prefer clicking to reading? [`explorer.html`](explorer.html) covers the same
+structure interactively — open it in a browser.
+
 Recipes for the common tasks. Each lists every file you must touch, in
 dependency order, because most changes here cross several layers and missing one
 fails quietly rather than loudly.

@@ -92,6 +92,7 @@ Pick by what you are trying to do. You will not need most of this.
 
 | I want to… | Read |
 |---|---|
+| click around it instead of reading | **[`docs/explorer.html`](docs/explorer.html)** — open it in a browser; no server needed |
 | understand a term I keep seeing | [`GLOSSARY.md`](GLOSSARY.md) |
 | follow one click through the whole stack | [`architecture/END-TO-END.md`](architecture/END-TO-END.md) |
 | see the backend's flows and state machines | [`architecture/BACKEND-FLOWS.md`](architecture/BACKEND-FLOWS.md) |
@@ -109,6 +110,7 @@ Pick by what you are trying to do. You will not need most of this.
 RouteOS/
 ├── START-HERE.md         ← you are here
 ├── GLOSSARY.md           the vocabulary
+├── docs/explorer.html    the same system, clickable
 ├── README.md             the showcase: demo links, screenshots, benchmarks
 │
 ├── backend/              FastAPI. The API, the solver, the simulation.

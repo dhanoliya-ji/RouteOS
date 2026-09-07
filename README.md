@@ -335,6 +335,7 @@ Start at the top; each row answers a different question.
 | Document | Answers |
 |---|---|
 | **[START-HERE.md](START-HERE.md)** | **New here? Read this first.** What the system is, the five files that matter, and a one-minute click-through |
+| **[docs/explorer.html](docs/explorer.html)** | The same material as an interactive console — click a layer, step a request through eleven files, compare the two routing algorithms. Open it in a browser; no server or build needed |
 | [GLOSSARY.md](GLOSSARY.md) | Every unfamiliar term — CVRPTW, disjunction, horizon, `plan_source`, GiST, `MissingGreenlet` |
 | [architecture/END-TO-END.md](architecture/END-TO-END.md) | One click traced across **both halves**: browser → API → worker thread → database → WebSocket → map |
 | [architecture/BACKEND-FLOWS.md](architecture/BACKEND-FLOWS.md) | The backend's flows, state machines, and a "to change X, open Y" table |
