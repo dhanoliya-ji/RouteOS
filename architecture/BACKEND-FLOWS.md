@@ -232,55 +232,115 @@ vehicle writes nothing, because it is not going anywhere.
 
 ## 5. State machines
 
-```
-  ORDER
-    PENDING ──plan accepted──▶ ASSIGNED ──▶ OUT_FOR_DELIVERY
-       │                                          │
-       │                              ┌───────────┴───────────┐
-       │                          DELIVERED                FAILED
-       └──▶ CANCELLED (while PENDING or ASSIGNED only)
+Five lifecycles. In each, the note names the status that gates something
+important — those are the ones worth remembering.
 
-    PENDING is the ONLY status the optimizer plans for — which is what stops an
-    order already loaded on a van being re-planned onto another.
+### Order
 
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> ASSIGNED : plan accepted
+    ASSIGNED --> OUT_FOR_DELIVERY : simulation starts
+    OUT_FOR_DELIVERY --> DELIVERED : vehicle arrives
+    OUT_FOR_DELIVERY --> FAILED : attempt fails
+    PENDING --> CANCELLED : cancelled
+    ASSIGNED --> CANCELLED : cancelled
+    DELIVERED --> [*]
+    FAILED --> [*]
+    CANCELLED --> [*]
 
-  VEHICLE
-    AVAILABLE ──plan accepted──▶ ASSIGNED ──sim starts──▶ IN_TRANSIT
-        ▲                                                     │
-        └──────────────── back at the depot ──────────────────┘
-
-    MAINTENANCE / OFFLINE are set by hand, and are how a van is taken out of
-    planning. AVAILABLE is the only status the optimizer will use.
-
-
-  ROUTE
-    PLANNED ──engine picks it up──▶ ACTIVE ──back at depot──▶ COMPLETED
-                                       │
-                                  CANCELLED (manual)
-
-    Created ONLY by accepting an optimization plan. There is no POST /routes.
-
-
-  ROUTE STOP
-    PENDING ──▶ ARRIVED ──▶ COMPLETED
-       └──▶ SKIPPED
-
-    PENDING vs COMPLETED is what makes mid-route re-optimization safe: a
-    re-plan touches only PENDING stops, so completed deliveries keep their
-    sequence numbers and their recorded arrival times.
-
-
-  OPTIMIZATION RUN
-    PENDING ──▶ PROCESSING ──▶ COMPLETED ──accept──▶ (routes created)
-                    │              │
-                    └──────────▶ FAILED ◀──discard──┘
-
-    Note FAILED is reused for a discarded plan, with the reason in
-    error_message. A distinct DISCARDED status would be clearer but needs a
-    migration.
+    note right of PENDING
+        The ONLY status the optimizer plans for.
+        This is what stops an order already
+        loaded on a van being re-planned onto
+        another one.
+    end note
 ```
 
----
+### Vehicle
+
+```mermaid
+stateDiagram-v2
+    [*] --> AVAILABLE
+    AVAILABLE --> ASSIGNED : plan accepted
+    ASSIGNED --> IN_TRANSIT : simulation starts
+    IN_TRANSIT --> AVAILABLE : back at the depot
+    AVAILABLE --> MAINTENANCE : set by hand
+    AVAILABLE --> OFFLINE : set by hand
+    MAINTENANCE --> AVAILABLE : set by hand
+    OFFLINE --> AVAILABLE : set by hand
+
+    note right of AVAILABLE
+        The only status the optimizer will use.
+        MAINTENANCE and OFFLINE are therefore
+        how a van is taken out of planning.
+    end note
+```
+
+### Route
+
+```mermaid
+stateDiagram-v2
+    [*] --> PLANNED : a plan is accepted
+    PLANNED --> ACTIVE : the engine picks it up
+    ACTIVE --> COMPLETED : back at the depot
+    PLANNED --> CANCELLED : manual
+    ACTIVE --> CANCELLED : manual
+    COMPLETED --> [*]
+    CANCELLED --> [*]
+
+    note right of PLANNED
+        Created ONLY by accepting an
+        optimization plan. There is no
+        POST /routes, and no Create schema.
+    end note
+```
+
+### Route stop
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> ARRIVED : at the location
+    ARRIVED --> COMPLETED : delivery confirmed
+    PENDING --> SKIPPED : nobody home, access blocked
+    COMPLETED --> [*]
+    SKIPPED --> [*]
+
+    note right of PENDING
+        The PENDING / COMPLETED split is what
+        makes mid-route re-optimization safe:
+        only pending stops are re-sequenced, so
+        completed deliveries keep their order
+        and their recorded arrival times.
+    end note
+```
+
+### Optimization run
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> PROCESSING : solve starts
+    PROCESSING --> COMPLETED : plan stored
+    PROCESSING --> FAILED : solve raised
+    COMPLETED --> FAILED : discarded by a human
+    COMPLETED --> [*] : accepted, routes created
+
+    note right of COMPLETED
+        COMPLETED means a plan EXISTS,
+        not that it was applied.
+    end note
+
+    note right of FAILED
+        Reused for a discarded plan, with the
+        reason in error_message. This conflates
+        "the solver broke" with "we did not want
+        it"; a DISCARDED member would be clearer
+        but needs a migration.
+    end note
+```
 
 ## 6. The two time systems
 
