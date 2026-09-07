@@ -1,3 +1,8 @@
+// The live map: watch the simulated fleet move, disrupt it, and re-plan.
+//
+// The only screen whose primary data source is the WebSocket rather than a
+// query. Nothing here computes movement - the backend owns that, and this
+// renders the positions it is sent. See pages/README.md.
 import { useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, Polyline, Popup, TileLayer } from "react-leaflet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +14,8 @@ import { useToast } from "../stores/toast";
 import { NCR_CENTER, ROUTE_COLORS, coloredDot, depotIcon, vehicleIcon } from "../utils/map";
 import type { WsEvent } from "../types";
 
+// A vehicle's live position. Deliberately narrower than the Vehicle type: only
+// what arrives on the wire and only what the map needs.
 interface LiveVehicle {
   vehicle_id: number;
   route_id: number;
@@ -20,24 +27,44 @@ export default function LiveOps() {
   const qc = useQueryClient();
   const push = useToast((s) => s.push);
   const [speed, setSpeed] = useState(20);
+  // Keyed by vehicle_id, so a location event replaces one entry rather than
+  // rebuilding a list - at one event per vehicle per second that matters.
+  //
+  // Held in local state rather than the query cache: these are pushed events,
+  // not a resource that can be re-requested.
   const [positions, setPositions] = useState<Record<number, LiveVehicle>>({});
   const [feed, setFeed] = useState<string[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<number | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  // A ref shadowing `feed`, so pushFeed can read the current list without
+  // depending on it. The socket handler was created earlier, so reading `feed`
+  // directly could append to an outdated array.
+  //
+  // A functional update - setFeed(prev => [msg, ...prev].slice(0, 40)) - would
+  // do the same with one source of truth instead of two, and is a worthwhile
+  // simplification.
   const feedRef = useRef<string[]>([]);
 
   const depots = useQuery({ queryKey: ["depots"], queryFn: depotApi.list });
   const depot = depots.data?.[0];
+  // Route geometry and simulation status still come from polling - they change
+  // on the scale of seconds, not continuously, and the socket carries positions
+  // rather than route definitions.
   const routes = useQuery({ queryKey: ["active-routes"], queryFn: () => routeApi.list("ACTIVE"), refetchInterval: 5000 });
   const simStatus = useQuery({ queryKey: ["sim-status"], queryFn: simulationApi.status, refetchInterval: 5000 });
 
   const pushFeed = (msg: string) => {
+    // Newest first, capped at 40 so a long simulation cannot grow the feed
+    // without bound.
     feedRef.current = [`${new Date().toLocaleTimeString()} · ${msg}`, ...feedRef.current].slice(0, 40);
     setFeed([...feedRef.current]);
   };
 
   const onEvent = (e: WsEvent) => {
     switch (e.type) {
+      // Sent once on connect. REPLACES everything rather than merging, which is
+      // what makes a reconnect correct: the client adopts the server's current
+      // truth instead of trying to reconcile whatever it missed.
       case "SNAPSHOT":
         if (e.data?.vehicles) {
           const next: Record<number, LiveVehicle> = {};
@@ -61,10 +88,15 @@ export default function LiveOps() {
       case "DELIVERY_COMPLETED":
         pushFeed(`Delivered order #${e.data.order_id} (stop ${e.data.stop_sequence})`);
         break;
+      // The one event that crosses into the query cache. A completed route
+      // changes the route LIST, which is server state - so the socket
+      // invalidates the query rather than trying to patch it locally.
       case "ROUTE_STATUS_UPDATED":
         pushFeed(`Route ${e.data.route_code} → ${e.data.status}`);
         qc.invalidateQueries({ queryKey: ["active-routes"] });
         break;
+      // The backend has already worked out which deliveries will now miss their
+      // windows, so the banner can name the risk without recomputing anything.
       case "ROUTE_DELAYED":
         setWarning(
           `Route ${e.data.route_id}: +${e.data.added_delay_minutes} min delay (${e.data.severity})` +
@@ -72,6 +104,8 @@ export default function LiveOps() {
         );
         pushFeed(`Traffic on route ${e.data.route_id}: +${e.data.added_delay_minutes} min`);
         break;
+      // Clears the delay warning: the route has been re-planned around the
+      // disruption, so the previous at-risk list no longer applies.
       case "ROUTE_REOPTIMIZED":
         pushFeed(`Route ${e.data.route_id} re-optimized (${e.data.remaining_distance_km} km remaining)`);
         setWarning(null);
@@ -87,6 +121,9 @@ export default function LiveOps() {
   const startMut = useMutation({
     mutationFn: () => simulationApi.start(speed),
     onSuccess: (r) => {
+      // The backend answers 200 with {started: false} when there are no routes
+      // to run - an expected state, not a failure - so the flag is checked in
+      // onSuccess rather than onError.
       if (r.started === false) push(r.reason || "Nothing to simulate", "error");
       else push(`Simulation started at ${speed}x`, "success");
     },
@@ -100,12 +137,16 @@ export default function LiveOps() {
   const reoptMut = useMutation({
     mutationFn: () => simulationApi.reoptimize(selectedRoute!),
     onSuccess: (r) => {
+      // Same shape: "fewer than 2 remaining stops" is information, not an
+      // error, so the toast kind follows the flag.
       push(r.reoptimized ? "Route re-optimized" : r.reason, r.reoptimized ? "success" : "info");
       qc.invalidateQueries({ queryKey: ["active-routes"] });
     },
     onError: (e: any) => push(e.message, "error"),
   });
 
+  // One polyline per active route, depot -> stops -> depot. Sorted by sequence
+  // on a COPY, since sort() mutates and this array lives in the query cache.
   const routePolylines = useMemo(() => {
     if (!depot) return [];
     return (routes.data || []).map((r, i) => ({
@@ -158,11 +199,17 @@ export default function LiveOps() {
               <Polyline
                 key={p.id}
                 positions={p.positions}
+                // The selected route is drawn thicker and more opaque, so the one
+                // being disrupted is unmistakable on a busy map.
                 pathOptions={{ color: p.color, weight: selectedRoute === p.id ? 6 : 3, opacity: selectedRoute === p.id ? 0.95 : 0.55 }}
                 eventHandlers={{ click: () => setSelectedRoute(p.id) }}
               />
             ))}
             {Object.values(positions).map((v) => {
+              // Colour the vehicle to match its own route's polyline, by finding
+              // that route's position in the list. `idx < 0` falls back to the
+              // first colour for a vehicle whose route is not in the current
+              // ACTIVE set - which happens briefly after a route completes.
               const idx = routePolylines.findIndex((p) => p.id === v.route_id);
               return (
                 <Marker key={v.vehicle_id} position={[v.lat, v.lon]} icon={vehicleIcon(ROUTE_COLORS[(idx < 0 ? 0 : idx) % ROUTE_COLORS.length])}>
@@ -183,6 +230,8 @@ export default function LiveOps() {
                   className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-sm ${selectedRoute === r.id ? "bg-brand-50 text-brand-700" : "hover:bg-ink-50"}`}
                 >
                   <span>{r.route_code}</span>
+                  {/* +1 because progress_stop_index is -1 at the depot before any
+                      delivery, so this reads 0/8 rather than -1/8. */}
                   <span className="text-xs text-ink-400">{r.progress_stop_index + 1}/{r.stops.length}</span>
                   <StatusBadge value={r.status} />
                 </button>
