@@ -41,18 +41,6 @@ def _cache_key(prefix: str, start: date | None, end: date | None) -> str:
     return f"routeos:analytics:{prefix}:{start}:{end}"
 
 
-def _range(start: date | None, end: date | None):
-    # NOTE: unused — nothing calls this. summary_metrics builds its own
-    # `route_filter` inline instead, and the body here returns bare datetimes
-    # rather than the conditions the local name `conds` implies.
-    conds = []
-    if start:
-        conds.append(datetime.combine(start, time.min, tzinfo=timezone.utc))
-    if end:
-        conds.append(datetime.combine(end, time.max, tzinfo=timezone.utc))
-    return conds
-
-
 async def summary_metrics(db: AsyncSession, start: date | None = None, end: date | None = None) -> dict:
     """The KPI panel: averages, utilisation rates and mean optimizer gain.
 
