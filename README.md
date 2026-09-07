@@ -27,6 +27,7 @@ Sign in as **`dispatcher@routeos.dev`** / **`dispatch12345`** (one-click on the 
 > instance gets a fraction of a CPU — see [a note on the live demo's solver
 > quality](#a-note-on-the-live-demo). For full-speed results, run it locally with one command.
 
+**[▶ Start Here](START-HERE.md)** ·
 **[Quick Start](#-quick-start)** ·
 **[Screenshots](#-screenshots)** ·
 **[How It Works](#-how-it-works)** ·
@@ -40,6 +41,11 @@ Sign in as **`dispatcher@routeos.dev`** / **`dispatch12345`** (one-click on the 
 ---
 
 ## What is RouteOS?
+
+> **Want to understand the code rather than the product?**
+> Read **[START-HERE.md](START-HERE.md)** instead — a 15-minute guided tour of
+> the system, the five files that carry the real logic, and where to go next.
+> This README is the showcase: demo links, screenshots, benchmarks and features.
 
 Every delivery business faces the same question each morning: *given N orders and M vehicles,
 who delivers what, in what order?* Answer it badly and you burn fuel, miss delivery windows, and
@@ -324,16 +330,23 @@ while a plan is being computed.
 
 ### Documentation map
 
+Start at the top; each row answers a different question.
+
 | Document | Answers |
 |---|---|
-| **[architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md)** | data model, real-time flow, and how this scales to a million deliveries/day |
-| **[architecture/BACKEND-FLOWS.md](architecture/BACKEND-FLOWS.md)** | what happens in what order across which files — sequence diagrams, state machines, and a "to change X, open Y" table |
-| **[backend/README.md](backend/README.md)** | the backend layer map, one request traced end to end, and how to run it |
-| **[backend/app/README.md](backend/app/README.md)** | which package may import which, as a dependency matrix |
+| **[START-HERE.md](START-HERE.md)** | **New here? Read this first.** What the system is, the five files that matter, and a one-minute click-through |
+| [GLOSSARY.md](GLOSSARY.md) | Every unfamiliar term — CVRPTW, disjunction, horizon, `plan_source`, GiST, `MissingGreenlet` |
+| [architecture/END-TO-END.md](architecture/END-TO-END.md) | One click traced across **both halves**: browser → API → worker thread → database → WebSocket → map |
+| [architecture/BACKEND-FLOWS.md](architecture/BACKEND-FLOWS.md) | The backend's flows, state machines, and a "to change X, open Y" table |
+| [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | The data model, and how this would scale to a million deliveries a day |
+| [docs/HOW-TO.md](docs/HOW-TO.md) | Recipes: add a field, an endpoint, a screen; change what the solver optimizes |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | It will not start · the numbers look wrong · every API error code |
+| [backend/README.md](backend/README.md) | The backend layer map and one request traced end to end |
+| [frontend/README.md](frontend/README.md) | The three-state model (server / global / local / live) and the screen map |
 
-Every folder under `backend/` also carries its own `README.md` describing what it
-does, who calls it, and each of its files — start at
-[backend/README.md](backend/README.md) and follow the folder index.
+Beyond those, **every folder** in `backend/` and `frontend/src/` carries its own
+`README.md` explaining that folder and each of its files. They are reference,
+not a reading list — `START-HERE.md` says which ones you actually need.
 
 ### Project structure
 
