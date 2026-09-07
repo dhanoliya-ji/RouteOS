@@ -1,3 +1,15 @@
+// TypeScript mirrors of the backend's API payloads.
+//
+// Compile-time only — every interface here is erased from the bundle. These are
+// a HAND-MAINTAINED copy of backend/app/schemas/, so nothing validates a
+// response at runtime: if the API renames a field, this file stays valid and
+// the value silently becomes undefined at the point of use. See README.md.
+
+// --- Enums, as string unions -------------------------------------------------
+// Unions of literals rather than TS `enum`s: the backend serialises these as
+// strings, so a literal union IS the wire format and needs no conversion. A TS
+// enum would generate a runtime object and invite Role.ADMIN where the API
+// wants "ADMIN".
 export type Role = "ADMIN" | "DISPATCHER" | "VIEWER";
 
 export interface User {
@@ -17,6 +29,9 @@ export type VehicleStatus =
 export type RouteStatus = "PLANNED" | "ACTIVE" | "COMPLETED" | "CANCELLED";
 export type Objective = "MIN_DISTANCE" | "MIN_TIME" | "BALANCED";
 
+// --- Resources ---------------------------------------------------------------
+// Field-for-field mirrors of the backend's *Out schemas. `| null` marks a
+// nullable column and is load-bearing: it forces a check at the use site.
 export interface Depot {
   id: number;
   name: string;
@@ -76,6 +91,8 @@ export interface RouteStop {
 export interface Route {
   id: number;
   route_code: string;
+  // Nullable because the backend FK is ON DELETE SET NULL: a route outlives
+  // the vehicle that drove it, so history survives selling a van.
   vehicle_id: number | null;
   depot_id: number;
   status: RouteStatus;
@@ -91,6 +108,9 @@ export interface Route {
   stops: RouteStop[];
 }
 
+// --- Optimization ------------------------------------------------------------
+// Metrics is used twice inside Comparison — once for the greedy baseline, once
+// for the dispatched plan — so both are guaranteed to be measured the same way.
 export interface Metrics {
   total_distance_km: number;
   estimated_duration_minutes: number;
@@ -124,6 +144,10 @@ export interface OptimizationRun {
   objective_value: number | null;
   error_message: string | null;
   created_at: string;
+  // The whole solver output, as stored in the backend's JSONB column. Declared
+  // inline rather than as named interfaces so the entire payload is visible in
+  // one place; the cost is that the inner shapes cannot be referenced
+  // elsewhere, which is fine while only RoutePlanner reads them.
   result_payload?: {
     routes: {
       vehicle_id: number;
@@ -155,6 +179,10 @@ export interface OptimizationRun {
   } | null;
 }
 
+// --- Envelopes ---------------------------------------------------------------
+// Generic so Paginated<Order> keeps full type information through the API layer.
+// `pages` is sent by the server rather than derived here, so the client and the
+// server cannot disagree about the arithmetic.
 export interface Paginated<T> {
   items: T[];
   total: number;
@@ -175,6 +203,13 @@ export interface DashboardSummary {
   on_time_delivery_rate: number;
 }
 
+// A WebSocket frame. `data: any` is the weakest type in the codebase.
+//
+// The backend emits thirteen event types with thirteen different payloads
+// (catalogued in backend/app/websocket/README.md), so a faithful type would be
+// a discriminated union on `type` — which would make LiveOps's switch
+// exhaustively checked, where a typo in e.data.vehicle_id currently compiles
+// without complaint. The highest-value typing improvement available here.
 export interface WsEvent {
   type: string;
   data: any;
