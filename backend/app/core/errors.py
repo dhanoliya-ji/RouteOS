@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -115,10 +116,25 @@ def register_exception_handlers(app: FastAPI) -> None:
         `exc.errors()` is passed through in `details` because it names the exact
         field and reason for each problem — which is what lets a UI highlight
         the offending input rather than showing a generic failure.
+
+        jsonable_encoder is NOT optional. When a rule is enforced by a
+        @model_validator that raises ValueError — as the delivery-window check
+        in schemas/order.py does — pydantic puts the raw exception OBJECT in
+        each error's "ctx" key. Passing that straight to JSONResponse raises
+        `TypeError: Object of type ValueError is not JSON serializable` while
+        building the response, so the client receives a 500 instead of the 422
+        it should have, and the field-level detail is lost entirely.
+
+        Encoding first coerces the exception to its string form. This is what
+        FastAPI's own default handler does; the bug was in not doing it here.
         """
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content=_envelope("VALIDATION_ERROR", "Request validation failed", {"errors": exc.errors()}),
+            content=_envelope(
+                "VALIDATION_ERROR",
+                "Request validation failed",
+                {"errors": jsonable_encoder(exc.errors())},
+            ),
         )
 
     @app.exception_handler(StarletteHTTPException)
