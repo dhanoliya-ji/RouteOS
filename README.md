@@ -322,8 +322,18 @@ flowchart TD
 The heavy OR-Tools solve runs in a worker thread (`asyncio.to_thread`) so the API stays responsive
 while a plan is being computed.
 
-Deeper treatment of the data model, real-time flow, and scaling strategy:
-**[architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md)**.
+### Documentation map
+
+| Document | Answers |
+|---|---|
+| **[architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md)** | data model, real-time flow, and how this scales to a million deliveries/day |
+| **[architecture/BACKEND-FLOWS.md](architecture/BACKEND-FLOWS.md)** | what happens in what order across which files — sequence diagrams, state machines, and a "to change X, open Y" table |
+| **[backend/README.md](backend/README.md)** | the backend layer map, one request traced end to end, and how to run it |
+| **[backend/app/README.md](backend/app/README.md)** | which package may import which, as a dependency matrix |
+
+Every folder under `backend/` also carries its own `README.md` describing what it
+does, who calls it, and each of its files — start at
+[backend/README.md](backend/README.md) and follow the folder index.
 
 ### Project structure
 
@@ -344,6 +354,7 @@ RouteOS/
 │   ├── alembic/               # migrations (incl. CREATE EXTENSION postgis)
 │   ├── scripts/               # seed, demo order generator, benchmark harness
 │   └── tests/                 # pytest suite
+│                              #   ...every folder above has its own README.md
 ├── frontend/
 │   └── src/
 │       ├── api/               # typed client + endpoints
