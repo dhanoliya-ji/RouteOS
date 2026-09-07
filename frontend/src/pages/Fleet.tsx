@@ -1,3 +1,5 @@
+// Vehicle and driver management. The same shape as Orders, without pagination -
+// a fleet is tens or hundreds of rows, so the whole list is fetched at once.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../components/Layout";
@@ -7,6 +9,9 @@ import { useToast } from "../stores/toast";
 import { useAuth, canManage } from "../stores/auth";
 import type { Vehicle } from "../types";
 
+// Status options for the inline dropdown. Setting MAINTENANCE or OFFLINE is
+// how a vehicle is taken out of planning, since the optimizer only considers
+// AVAILABLE ones.
 const STATUSES = ["AVAILABLE", "ASSIGNED", "IN_TRANSIT", "MAINTENANCE", "OFFLINE"];
 
 export default function Fleet() {
@@ -16,9 +21,13 @@ export default function Fleet() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Vehicle | null>(null);
 
+  // Polls every 6s so status changes driven by the simulation - a van going
+  // IN_TRANSIT, then back to AVAILABLE - appear without a manual refresh.
   const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: () => vehicleApi.list(), refetchInterval: 6000 });
   const depots = useQuery({ queryKey: ["depots"], queryFn: depotApi.list });
 
+  // A separate mutation from the form's, for the inline status dropdown -
+  // changing one field should not require opening the whole form.
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) => vehicleApi.update(id, { status } as any),
     onSuccess: () => {

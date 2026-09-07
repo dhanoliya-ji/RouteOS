@@ -1,3 +1,8 @@
+// Order management - the fullest CRUD screen, and the reference for the
+// pattern Fleet, Depots and ActiveRoutes follow.
+//
+// Paginated table, three filters plus free-text search, and a modal form for
+// create and edit. Read this one first; see pages/README.md.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "../components/Layout";
@@ -7,6 +12,9 @@ import { useToast } from "../stores/toast";
 import { useAuth, canManage } from "../stores/auth";
 import type { Order } from "../types";
 
+// Filter options, duplicated from the backend's enums rather than derived.
+// They mirror src/types/index.ts, so a new backend status needs adding in both
+// places - the cost of not having generated types.
 const STATUSES = ["PENDING", "ASSIGNED", "OUT_FOR_DELIVERY", "DELIVERED", "FAILED", "CANCELLED"];
 const PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"];
 
@@ -16,6 +24,8 @@ export default function Orders() {
   const role = useAuth((s) => s.user?.role);
   const editable = canManage(role);
 
+  // Pure UI state: what the user has chosen. Deliberately NOT the order data
+  // itself, which belongs to the query cache below.
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
@@ -25,6 +35,10 @@ export default function Orders() {
 
   const depots = useQuery({ queryKey: ["depots"], queryFn: depotApi.list });
   const orders = useQuery({
+    // Every filter is part of the key, which IS the cache identity. So changing
+    // a filter is automatically a different cache entry and refetches - no
+    // effect watching the filters - and returning to a previous combination is
+    // instant because that entry is still cached.
     queryKey: ["orders", page, status, priority, search],
     queryFn: () => orderApi.list({ page, page_size: 20, status, priority, search }),
   });
@@ -33,8 +47,16 @@ export default function Orders() {
     mutationFn: (id: number) => orderApi.cancel(id),
     onSuccess: () => {
       push("Order cancelled", "success");
+      // Invalidate rather than patch the cached array by hand: the list is
+      // refetched, so the screen shows what the server actually stored.
+      //
+      // ["orders"] matches by PREFIX, so this clears every page and filter
+      // combination at once - intended, since a cancelled order could appear in
+      // any of them.
       qc.invalidateQueries({ queryKey: ["orders"] });
     },
+    // Every mutation reports failures this way. Queries do not - see the note
+    // on ErrorState in components/ui.tsx.
     onError: (e: any) => push(e.message, "error"),
   });
 
@@ -62,6 +84,9 @@ export default function Orders() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
+              // Reset to page 1 on EVERY filter change. Without this, filtering
+              // while on page 4 would request page 4 of a shorter result set and
+              // show an empty table.
               setPage(1);
             }}
           />
@@ -107,6 +132,9 @@ export default function Orders() {
                         {editable && (
                           <div className="flex justify-end gap-2">
                             <button className="text-brand-600 hover:underline" onClick={() => openEdit(o)}>Edit</button>
+                            {/* Cancel only while PENDING. The backend refuses
+                                once a delivery is under way, so hiding it here
+                                just avoids offering an action that would 409. */}
                             {o.status === "PENDING" && (
                               <button className="text-red-600 hover:underline" onClick={() => cancelMut.mutate(o.id)}>
                                 Cancel
@@ -128,6 +156,8 @@ export default function Orders() {
             <span>{orders.data.total} orders</span>
             <div className="flex items-center gap-2">
               <button className="btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
+              {/* max(1, pages) so an empty result reads "Page 1 / 1" rather than
+                  "Page 1 / 0". */}
               <span>Page {orders.data.page} / {Math.max(1, orders.data.pages)}</span>
               <button className="btn-ghost" disabled={page >= orders.data.pages} onClick={() => setPage((p) => p + 1)}>Next</button>
             </div>
@@ -135,6 +165,9 @@ export default function Orders() {
         )}
       </div>
 
+      {/* Mounted only while open, so OrderForm's useState initialisers re-run
+          each time and the form starts from the row being edited rather than
+          from whatever was edited last. */}
       {modalOpen && (
         <OrderForm
           order={editing}
@@ -150,6 +183,14 @@ export default function Orders() {
   );
 }
 
+/**
+ * The create/edit form.
+ *
+ * One component for both, distinguished by whether `order` is null - the
+ * fields are identical, so splitting them would duplicate the whole form.
+ *
+ * Local to this file rather than in components/: nothing else uses it.
+ */
 function OrderForm({
   order,
   depots,
@@ -166,15 +207,21 @@ function OrderForm({
     customer_name: order?.customer_name || "",
     customer_phone: order?.customer_phone || "",
     delivery_address: order?.delivery_address || "",
+    // `??` not `||` for the numeric fields: a legitimate 0 latitude or 0 weight
+    // would be falsy and get silently replaced by the default.
     latitude: order?.latitude ?? 28.55,
     longitude: order?.longitude ?? 77.25,
     weight_kg: order?.weight_kg ?? 5,
     priority: order?.priority || "NORMAL",
     service_time_minutes: order?.service_time_minutes ?? 10,
+    // Falls back to the first depot, then to 1 - so the form is usable before
+    // the depots query has resolved.
     depot_id: order?.depot_id ?? depots[0]?.id ?? 1,
   });
 
   const mut = useMutation({
+    // The one place create and edit differ. PATCH sends the whole form, which
+    // is harmless because the backend only applies the fields present.
     mutationFn: () =>
       order ? orderApi.update(order.id, form as any) : orderApi.create(form as any),
     onSuccess: () => {
@@ -184,6 +231,8 @@ function OrderForm({
     onError: (e: any) => push(e.message, "error"),
   });
 
+  // One setter for every field, keyed by name. A functional update, so two
+  // changes in quick succession cannot overwrite each other.
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
