@@ -1,0 +1,188 @@
+# CI — runs on every push and pull request.
+#
+# WHY THIS EXISTS
+# ---------------
+# There are 202 tests in this repository, and until this file they only ran
+# when someone remembered to run them. That is the failure mode CI exists to
+# remove: a suite nobody runs is a suite that quietly stops passing.
+#
+# WHAT IT CHECKS
+# --------------
+# The backend and frontend run as separate jobs, in parallel, because they
+# share nothing and a failure in one should not hide the state of the other.
+#
+# A third job audits dependencies. That one is not decoration: this frontend
+# was carrying a critical advisory and nine others for months, and nothing
+# said so until somebody thought to look.
+#
+# WHAT IT DELIBERATELY DOES NOT DO
+# --------------------------------
+# No deployment, and no publishing. This workflow only ever reports.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+# A new push to the same branch cancels the run still in flight, so pushing
+# three times in a minute does not queue three full runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ====================================================================
+  backend:
+    name: Backend — 119 tests
+    runs-on: ubuntu-latest
+
+    services:
+      # PostGIS, not plain Postgres. The Tier 2 tests use Geography columns,
+      # ST_DWithin and date_trunc, so a lighter substitute would be a
+      # different test passing while the real query is broken.
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: routeos
+          POSTGRES_PASSWORD: routeos_test
+          POSTGRES_DB: routeos_test
+        ports:
+          - 5432:5432
+        # Without this the job races the container and the first connection
+        # fails against a database seconds away from being ready.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # conftest.py reads this exact variable to decide where the test
+      # database lives, defaulting to port 55432 locally so it does not
+      # collide with a developer's own Postgres. CI has no such collision.
+      TEST_DATABASE_URL: postgresql+asyncpg://routeos:routeos_test@localhost:5432/routeos_test
+      DATABASE_URL: postgresql+asyncpg://routeos:routeos_test@localhost:5432/routeos_test
+      REDIS_URL: redis://localhost:6379/0
+      # Never the checked-in default, even in CI.
+      SECRET_KEY: ci-only-secret-not-used-anywhere-else
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run migrations
+        # Creates every table and enables PostGIS. The Tier 2 tests skip
+        # themselves without a usable database, so leaving this out would turn
+        # a large part of the suite green by not running it.
+        run: alembic upgrade head
+
+      - name: Run tests
+        # One run, then inspect its summary. The suite skips its database
+        # tests when no database is reachable -- correct on a laptop, and
+        # dangerous here: a broken service container would present as a pass.
+        run: |
+          set -o pipefail
+          python -m pytest | tee result.txt
+          if grep -qE "[0-9]+ skipped" result.txt; then
+            echo "::error::Tests were skipped in CI. The database service is probably not reachable, so the Tier 2 tests never ran."
+            exit 1
+          fi
+
+  # ====================================================================
+  frontend:
+    name: Frontend — 83 tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # vite 7 requires 20.19+.
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        # `npm ci` rather than `npm install`: it installs exactly what the
+        # lockfile says and fails if package.json and the lockfile disagree.
+        # `npm install` would quietly resolve something newer, so CI would be
+        # testing a tree nobody has on their machine.
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        # `npm run build` is `tsc --noEmit && vite build`, so this also
+        # catches type errors the test run never reaches -- config files
+        # included.
+        run: npm run build
+
+  # ====================================================================
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm audit
+        working-directory: frontend
+        # The frontend is currently at zero vulnerabilities, and this is what
+        # keeps it there. `--audit-level=high` means a new moderate advisory
+        # reports without failing the build, while a high or critical one
+        # stops it -- the line between "worth knowing" and "worth blocking".
+        run: npm audit --audit-level=high
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: pip-audit
+        working-directory: backend
+        # Advisory only. The backend pins 21 packages, and a finding in a
+        # transitive dependency is often unreachable from this application's
+        # code -- so this reports rather than blocks, and a real finding stays
+        # a decision for a person to make.
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
