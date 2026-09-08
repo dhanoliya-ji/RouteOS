@@ -126,8 +126,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # vite 7 requires 20.19+.
-          node-version: "20"
+          # 22, not 20. vite 7 declares ^20.19.0 || >=22.12.0, and a bare "20"
+          # resolves to whatever the latest 20.x happens to be -- which clears
+          # that floor today and is one release-line decision away from not
+          # doing. Naming 22 makes the requirement explicit.
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -160,7 +163,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
